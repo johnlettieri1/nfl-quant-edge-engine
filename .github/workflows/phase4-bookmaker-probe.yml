@@ -1,0 +1,84 @@
+# One-shot Phase 4 bookmaker availability probe (approved Oct 15 2026).
+# Runs only on a push to phase-4-market-clv that changes THIS file. It spends at most ONE
+# Odds API credit (1 market x 10 named books = 1 region-equivalent), refuses to run a second
+# time if a result file already exists, never retries, never stores the key, and commits its
+# result only to docs/phase4/probe/ on this same dev branch (never main, never records).
+# Removed from the branch after the result is captured.
+name: Phase 4 bookmaker probe
+
+on:
+  push:
+    branches: [phase-4-market-clv]
+    paths: [".github/workflows/phase4-bookmaker-probe.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase4-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase-4-market-clv
+      - name: Probe (max 1 credit)
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: |
+          if ls docs/phase4/probe/bookmaker_probe_*.json >/dev/null 2>&1; then
+            echo "Probe result already exists; refusing to spend another credit."; exit 0
+          fi
+          python3 - <<'PY'
+          import hashlib, json, os, urllib.error, urllib.parse, urllib.request
+          from datetime import datetime, timezone
+          BOOKS = ["draftkings","fanduel","betmgm","betrivers","pinnacle","betonlineag","lowvig",
+                   "espnbet","williamhill_us","fanatics"]
+          params = {"markets": "totals", "oddsFormat": "american", "bookmakers": ",".join(BOOKS)}
+          url = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?" + urllib.parse.urlencode(
+              {**params, "apiKey": os.environ["ODDS_API_KEY"]})
+          started = datetime.now(timezone.utc).isoformat()
+          try:
+              with urllib.request.urlopen(url, timeout=30) as r:
+                  status, body, hdr = r.status, r.read(), dict(r.headers)
+          except urllib.error.HTTPError as e:
+              status, body, hdr = e.code, e.read(), dict(e.headers)
+          fetched = datetime.now(timezone.utc).isoformat()
+          h = {k.lower(): v for k, v in hdr.items()}
+          out = {"schema_version": "phase4_bookmaker_probe_v1", "retrieval_started_at": started, "fetched_at": fetched,
+                 "endpoint": "/v4/sports/americanfootball_nfl/odds", "request_params": params,
+                 "http_status": status, "x_requests_last": h.get("x-requests-last"),
+                 "x_requests_remaining": h.get("x-requests-remaining"), "x_requests_used": h.get("x-requests-used"),
+                 "code_sha": os.environ.get("GITHUB_SHA"), "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
+                 "response_sha256": hashlib.sha256(body).hexdigest()}
+          summary = {}
+          if status == 200:
+              games = json.loads(body)
+              out["n_events"] = len(games)
+              for b in BOOKS:
+                  ev = [g for g in games for bk in g.get("bookmakers", []) if bk["key"] == b
+                        and any(m["key"] == "totals" for m in bk.get("markets", []))]
+                  summary[b] = {"returned": len(ev) > 0, "events_with_totals": len(ev),
+                                "title": next((bk["title"] for g in games for bk in g.get("bookmakers", []) if bk["key"] == b), None)}
+              out["unexpected_books"] = sorted({bk["key"] for g in games for bk in g.get("bookmakers", [])} - set(BOOKS))
+          out["per_book"] = summary
+          out["response_body"] = body.decode("utf-8", "replace")
+          assert os.environ["ODDS_API_KEY"] not in out["response_body"]
+          ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+          path = f"docs/phase4/probe/bookmaker_probe_{ts}.json"
+          with open(path, "x") as f:
+              json.dump(out, f, indent=1)
+          print(json.dumps({k: v for k, v in out.items() if k != "response_body"}, indent=1))
+          PY
+      - name: Commit result to this dev branch only
+        run: |
+          git add docs/phase4/probe/
+          if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
+          bad=$(git diff --cached --name-only | grep -v '^docs/phase4/probe/' || true)
+          if [ -n "$bad" ]; then echo "refusing: $bad"; exit 1; fi
+          if git diff --cached | grep -E -i 'apiKey=' ; then echo "possible secret"; exit 1; fi
+          git -c user.name="phase4-probe-bot" -c user.email="phase4-probe-bot@users.noreply.github.com" commit -q -m "Phase 4: bookmaker availability probe result"
+          git push origin HEAD:refs/heads/phase-4-market-clv
