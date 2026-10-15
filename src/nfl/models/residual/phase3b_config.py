@@ -38,7 +38,7 @@ PRECIP_CHANCE_IGNORE_BELOW = 50
 OUTDOOR_ROOFS = ("outdoors", "open")
 
 # Injuries (section 5.2)
-INJURY_FIRST_SEASON = 2012            # snap counts start in 2012
+INJURY_FIRST_SEASON = 2013            # Amendment A1: nflverse snap counts actually start in 2013 (2012 was the spec value)
 STATUS_WEIGHT = {"Out": 1.0, "Doubtful": 0.75, "Questionable": 0.25, "Probable": 0.0}
 SNAP_WINDOW_GAMES = 4
 POS_GROUPS = {

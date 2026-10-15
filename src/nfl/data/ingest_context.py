@@ -27,8 +27,10 @@ def _guard(last_season: int, allow_live: bool) -> None:
 def _save(df: pd.DataFrame, cache_dir: Path, name: str, seasons: list[int]) -> pd.DataFrame:
     d = cache_dir / CTX; d.mkdir(parents=True, exist_ok=True)
     df.to_parquet(d / f"{name}.parquet", index=False)
+    returned = sorted(int(s) for s in df["season"].dropna().unique()) if "season" in df else None
     (d / f"{name}.meta.json").write_text(json.dumps({"source": "nflreadpy (nflverse)", "fetched_at": _now(),
-                                                     "seasons": seasons, "rows": int(len(df)), "is_real_data": True}, indent=2))
+                                                     "seasons_requested": seasons, "seasons_returned": returned,
+                                                     "rows": int(len(df)), "is_real_data": True}, indent=2))
     logger.info("Cached %s rows=%d", name, len(df))
     return df
 
@@ -45,7 +47,7 @@ def fetch_context(first_season: int = C.FIRST_SEASON, last_season: int = C.RESEA
     wx = _save(pd.concat(wx, ignore_index=True), cache_dir, "weather_text", seasons)
     inj_seasons = [s for s in seasons if s >= 2009]
     inj = _save(nfl.load_injuries(inj_seasons).to_pandas(), cache_dir, "injuries", inj_seasons)
-    snap_seasons = [s for s in seasons if s >= C.INJURY_FIRST_SEASON]
+    snap_seasons = [s for s in seasons if s >= 2012]   # requested from 2012; nflverse returns 2013+ (Amendment A1)
     snaps = _save(nfl.load_snap_counts(snap_seasons).to_pandas(), cache_dir, "snap_counts", snap_seasons)
     pl = nfl.load_players().to_pandas()[["gsis_id", "pfr_id", "display_name", "position"]]
     _save(pl, cache_dir, "players", [])

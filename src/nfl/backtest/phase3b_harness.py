@@ -133,11 +133,11 @@ INJ0 = C.INJURY_FIRST_SEASON
 CONTEXT_MODELS: dict[str, tuple[str, list[str], dict | None, int]] = {
     "r1_wx": ("fix", R8 + W, None, C.FIRST_SEASON),
     "r1_qb": ("fix", R8 + Q, None, C.FIRST_SEASON),
-    "r1_2012": ("fix", R8, None, INJ0),            # identical-window control for the injury group
+    "r1_2013": ("fix", R8, None, INJ0),            # identical-window control for the injury group (A1: 2013+)
     "r1_inj": ("fix", R8 + I, None, INJ0),
     "r0_wx": ("fix", LINE + W, None, C.FIRST_SEASON),
     "r0_qb": ("fix", LINE + Q, None, C.FIRST_SEASON),
-    "r0_2012": ("fix", LINE, None, INJ0),
+    "r0_2013": ("fix", LINE, None, INJ0),
     "r0_inj": ("fix", LINE + I, None, INJ0),
     "r1_all_context": ("fix", R8 + W + Q + I, None, INJ0),   # exploratory only
 }

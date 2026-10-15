@@ -180,4 +180,18 @@ shopping, opener-to-close movement and CLV prediction.
 
 ## Amendments
 
-(none)
+**A1 (after the 3B-3 run, found by the independent review): injury window starts 2013, not 2012.**
+nflverse snap counts return 2013+ only (the request for 2012 silently returns nothing), so every
+2012 injury feature was 0 and early-2013 importance was understated. `INJURY_FIRST_SEASON` is now
+2013 and the identical-window controls are renamed `r1_2013` / `r0_2013`. Reported both ways:
+the as-run 2012 results are kept in `results/phase3b3_results_asrun_inj2012.json`. The conclusion
+is the same either way (no injury model shows signal). A data-coverage fact, not an outcome-based change.
+
+**Notes recorded at review (no change made):**
+- Weather fill values (wind 8 mph, 59 F) are fixed constants rather than per-fold medians. The
+  1999-2014 and 1999-2022 medians are identical to them, and only 0.1% of games are filled.
+- The keep rule is applied with the pre-registered calibrator choice rule (section 4); results with
+  the logistic calibrator are stored too (`keep_rule_primary_logistic`). No model passes under either.
+- Models trained from 2013 have fewer than 500 prior out-of-sample rows for 2015 and 2016, so their
+  calibrated probabilities fall back to 0.5 in those seasons by rule. Their probability metrics are
+  partly mechanical; their residual metrics are not affected.
