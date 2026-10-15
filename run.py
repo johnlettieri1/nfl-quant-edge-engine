@@ -99,14 +99,18 @@ def cmd_analyze(a):
 
 def cmd_odds(a):
     from src.nfl.data.ingest import load_cached_schedules
-    from src.nfl.data.odds_snapshot import take_snapshot
+    from src.nfl.data.odds_snapshot import PregameNotNeeded, take_snapshot
     sched = None
     try:
         sched = load_cached_schedules()
     except FileNotFoundError:
         logging.warning("No cached schedules; snapshot rows will not carry game_id. Run `python run.py data --schedules-only`.")
     targets = json.loads(a.targets) if a.targets else None
-    summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, target_kickoffs=targets)
+    try:
+        summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, target_kickoffs=targets)
+    except PregameNotNeeded as e:
+        print(json.dumps({"skipped": True, "reason": str(e), "credits_spent": 0}))
+        return
     games = summary.pop("games_for_weather", [])
     if not a.no_weather and sched is not None:
         # Weather never blocks the odds record: the paid odds snapshot is already saved at this point.

@@ -70,11 +70,11 @@ def test_unknown_venue_is_data_unavailable(tmp_path):
 
 def test_weather_never_backfills_earlier_snapshots(tmp_path):
     run(tmp_path, [("2026_07_SEA_DEN", KICK.isoformat())])
-    first = (tmp_path / W.FORECAST_FILE).read_bytes()
+    first = (tmp_path / W.FORECAST_DIR / "forecasts_sid1.csv").read_bytes()
     W.capture_for_snapshot("sid2", [("2026_07_SEA_DEN", KICK.isoformat())], SCHED, weather_dir=tmp_path,
                            now=NOW + timedelta(hours=20), http_get=lambda *a, **k: Resp(json.dumps([om_block(NOW + timedelta(hours=20), wind=25)]).encode()))
     df = W.load_forecasts(tmp_path)
-    assert (tmp_path / W.FORECAST_FILE).read_bytes().startswith(first)
+    assert (tmp_path / W.FORECAST_DIR / "forecasts_sid1.csv").read_bytes() == first
     assert df[df.snapshot_id == "sid1"].wind_mph_window_mean.iloc[0] == 16.0      # unchanged
     assert df[df.snapshot_id == "sid2"].wind_mph_window_mean.iloc[0] == 25.0
     assert len(list((tmp_path / "raw").glob("forecast_*.json"))) == 2

@@ -40,6 +40,7 @@ def test_prices_compared_only_at_the_same_number():
     m = shop_metrics(q([("a", 43.0, -110, -110), ("b", 43.5, -105, -115)]))
     # each line has a single book: no same-line comparison possible -> blank, not manufactured
     assert m["price_adv_cents_over"] is None and m["best_over_price_at_canonical"] is None
+    assert m["consensus_over_price_at_canonical"] is None and m["consensus_over_prob_at_canonical"] is None
     m2 = shop_metrics(q([("a", 43.0, -110, -110), ("b", 43.0, -102, -118), ("c", 43.5, +120, -140)]))
     assert m2["canonical_total"] == 43.0 and m2["best_over_price_at_canonical"] == -102
     assert m2["price_adv_cents_over"] == 4.0   # median(-110,-102) = -106 -> -102 is 4 cents better

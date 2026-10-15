@@ -57,8 +57,9 @@ def shop_metrics(q: pd.DataFrame) -> dict:
            "under_crosses_key": any(can <= k < bu["line"] for k in C.KEY_TOTALS)}
     at = q[q.total_line == can]
     out["n_books_at_canonical"] = int(len(at))
+    # same-line consensus needs >= 2 books at the canonical number (spec section 10); otherwise blank
     out["consensus_over_prob_at_canonical"] = round(statistics.fmean(
-        devig_over(o, u) for o, u in zip(at.over_price, at.under_price)), 4) if len(at) else None
+        devig_over(o, u) for o, u in zip(at.over_price, at.under_price)), 4) if len(at) >= 2 else None
     for side, col in (("over", "over_price"), ("under", "under_price")):
         if len(at) >= 2:
             cons = median_price(list(at[col]))
@@ -68,7 +69,7 @@ def shop_metrics(q: pd.DataFrame) -> dict:
             out[f"price_adv_cents_{side}"] = round(cents(best) - cents(cons), 1)
             out[f"price_adv_prob_{side}"] = round(implied_prob(cons) - implied_prob(best), 4)
         else:  # fewer than 2 books at the same number: no same-line price comparison is possible
-            out[f"consensus_{side}_price_at_canonical"] = int(at[col].iloc[0]) if len(at) == 1 else None
+            out[f"consensus_{side}_price_at_canonical"] = None
             out[f"best_{side}_price_at_canonical"] = None
             out[f"price_adv_cents_{side}"] = None
             out[f"price_adv_prob_{side}"] = None

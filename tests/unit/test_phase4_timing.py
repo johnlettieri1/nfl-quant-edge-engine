@@ -84,6 +84,10 @@ def test_planner_any_snapshot_kind_counts_as_coverage_and_slots_merge():
     assert d.pull and len(d.target_kickoffs) == 2                                # one pull covers both
 
 
+def test_planner_stops_on_halt_file():
+    assert not T.plan_pregame(K - timedelta(minutes=20), [K], ["HALT_cost_anomaly_20261018T120000Z.json"]).pull
+
+
 def test_planner_respects_weekly_cap():
     assert not T.plan_pregame(K - timedelta(minutes=20), [K], [], credits_used_this_week=30).pull
 

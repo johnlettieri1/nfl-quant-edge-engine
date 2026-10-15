@@ -7,8 +7,15 @@ configs/phase4_books.yaml). Every snapshot is stored two ways, both append-only:
                                               usage headers, code SHA, workflow run id, SHA-256 of the
                                               exact response bytes, and the response body itself.
                                               Created exclusively; never overwritten.
-  data/odds/quotes_v2.csv                     one row per (snapshot, game, book): ONE book, ONE total
-                                              line, THAT book's Over and Under prices at that line.
+  data/odds/quotes/quotes_<snapshot_id>.csv   one row per (game, book) for that snapshot: ONE book, ONE
+                                              total line, THAT book's Over and Under prices at that line.
+                                              One new file per snapshot (exclusive create), so concurrent
+                                              workflows never write the same file. (The single validation
+                                              snapshot of Oct 15 2026 lives in the earlier combined file
+                                              data/odds/quotes_v2.csv; readers load both.)
+
+A pull that costs more than the approved 1 credit writes data/odds/raw/HALT_cost_anomaly_<ts>.json;
+while any HALT file exists every later pull is refused (John's approval needed to clear it).
 
 Terminology (spec section 8): snapshots carry a `snapshot_kind` describing what we did
 (tue_scheduled, thu_scheduled, sat_scheduled, sun_scheduled, sun_night_scheduled, pregame_window,
@@ -37,13 +44,16 @@ from src.nfl.data.team_mapping import to_nflverse_code
 from src.nfl.market import phase4_config as C
 from src.nfl.market.books import request_bookmakers
 from src.nfl.market.timing import (ET, UTC, et_date, is_pregame, minutes_to_kickoff, nflverse_kickoff_utc,
-                                   parse_raw_name, parse_utc, pulls_this_week, resolve_kickoff, snapshot_ts)
+                                   parse_raw_name, parse_utc, plan_pregame, pulls_this_week, resolve_kickoff,
+                                   snapshot_ts)
 
 logger = logging.getLogger(__name__)
 
 ODDS_DIR = Path("data/odds")
 RAW_SCHEMA = "odds_raw_v2"
-QUOTES_FILE = "quotes_v2.csv"
+QUOTES_FILE = "quotes_v2.csv"          # legacy combined file (validation snapshot only)
+QUOTES_DIR = "quotes"
+HALT_PREFIX = "HALT_"
 QUOTE_FIELDS = ["snapshot_id", "snapshot_ts_utc", "snapshot_kind", "event_id", "game_id", "match_method",
                 "home_team", "away_team", "commence_time_utc_as_reported", "kickoff_utc_resolved", "kickoff_et",
                 "minutes_to_kickoff", "is_pregame", "book", "total_line", "over_price", "under_price",
@@ -56,6 +66,10 @@ class BudgetError(RuntimeError):
 
 class CostAnomalyError(RuntimeError):
     """The API charged more than the approved plan expects. The raw response is already saved."""
+
+
+class PregameNotNeeded(RuntimeError):
+    """Re-check right before paying: every target kickoff is already covered, too close, or past."""
 
 
 # ---- matching -------------------------------------------------------------------------------
@@ -185,6 +199,19 @@ def raw_names(odds_dir: Path = ODDS_DIR) -> list[str]:
     return sorted(p.name for p in d.glob("totals_*.json")) if d.exists() else []
 
 
+def halt_files(odds_dir: Path = ODDS_DIR) -> list[str]:
+    d = odds_dir / "raw"
+    return sorted(p.name for p in d.glob(f"{HALT_PREFIX}*")) if d.exists() else []
+
+
+def _csv_bytes(rows: list[dict], fields: list[str]) -> bytes:
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
+    w.writeheader()
+    w.writerows(rows)
+    return buf.getvalue().encode("utf-8")
+
+
 # ---- the snapshot ---------------------------------------------------------------------------
 
 def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | None = None,
@@ -194,13 +221,26 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
     if kind not in C.ALL_KINDS or kind == "legacy_current":
         raise ValueError(f"invalid snapshot kind {kind}")
     names = raw_names(odds_dir)
+    now = now or datetime.now(UTC)
+    if kind == "pregame_window" and target_kickoffs:
+        # Re-check immediately before paying: the gate decided minutes ago and this job may have
+        # waited in the queue. Uses the records restored into odds_dir, so a pull that already
+        # covered the slot (or a kickoff that has passed) stops here without spending a credit.
+        d = plan_pregame(now, [parse_utc(k) for k in target_kickoffs], names)
+        if not d.pull:
+            raise PregameNotNeeded(d.reason)
     balance = None
     if preflight:
-        used_week = pulls_this_week(now or datetime.now(UTC), names)
+        halts = halt_files(odds_dir)
+        if halts:
+            raise BudgetError(f"halted by {halts[0]}; John's approval is needed before any further pull")
+        used_week = pulls_this_week(now, names)
         if used_week >= C.WEEKLY_CREDIT_CAP:
             raise BudgetError(f"weekly cap reached: {used_week} pulls since Tuesday 00:00 ET (cap {C.WEEKLY_CREDIT_CAP})")
         balance = fetch_balance()
-        if balance["remaining"] is not None and balance["remaining"] < C.CREDIT_RESERVE:
+        if balance["remaining"] is None:
+            raise BudgetError("credit balance header missing; refusing to pull (fail closed)")
+        if balance["remaining"] < C.CREDIT_RESERVE:
             raise BudgetError(f"credit reserve: {balance['remaining']} remaining < reserve {C.CREDIT_RESERVE}")
     res = fetch_totals_raw(request_bookmakers())
     body: bytes = res.pop("body")
@@ -221,9 +261,14 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
     if res["http_status"] != 200:
         raise RuntimeError(f"Odds API returned {res['http_status']}; raw saved at {raw_path} (no quotes parsed)")
     last = res.get("x_requests_last")
+    if last is not None and float(last) > C.EXPECTED_CREDITS_PER_PULL:
+        write_exclusive(odds_dir / "raw" / f"{HALT_PREFIX}cost_anomaly_{ts}.json", json.dumps(
+            {"snapshot_id": snapshot_id, "x_requests_last": last, "expected": C.EXPECTED_CREDITS_PER_PULL,
+             "note": "All further pulls are refused until John approves removing this file."}, indent=1).encode())
     games = json.loads(body)
     rows = parse_quotes(games, snapshot_id, fetched, kind, schedules, raw_path.name, sha)
-    append_rows_atomic(odds_dir / QUOTES_FILE, rows, QUOTE_FIELDS)
+    if rows:
+        write_exclusive(odds_dir / QUOTES_DIR / f"quotes_{snapshot_id}.csv", _csv_bytes(rows, QUOTE_FIELDS))
     summary = {"snapshot_id": snapshot_id, "kind": kind, "raw_path": str(raw_path), "games": len(games),
                "quote_rows": len(rows), "unmatched_games": len({r["event_id"] for r in rows if r["game_id"] is None}),
                "books_returned": sorted({r["book"] for r in rows}), "x_requests_last": last,
@@ -272,7 +317,8 @@ def quotes_from_raw(odds_dir: Path = ODDS_DIR, schedules: pd.DataFrame | None = 
 
 
 def load_quotes(odds_dir: Path = ODDS_DIR) -> pd.DataFrame:
-    path = odds_dir / QUOTES_FILE
-    if not path.exists():
+    paths = ([odds_dir / QUOTES_FILE] if (odds_dir / QUOTES_FILE).exists() else []) + \
+        sorted((odds_dir / QUOTES_DIR).glob("quotes_*.csv"))
+    if not paths:
         return pd.DataFrame(columns=QUOTE_FIELDS)
-    return pd.read_csv(path)
+    return pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)

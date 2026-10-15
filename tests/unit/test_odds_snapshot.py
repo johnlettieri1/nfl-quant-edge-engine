@@ -111,8 +111,9 @@ def test_snapshot_writes_v2_envelope_with_verifiable_hash_and_no_key(tmp_path, a
     assert env["schema_version"] == "odds_raw_v2" and env["snapshot_kind"] == "thu_scheduled"
     assert hashlib.sha256(env["response_body"].encode()).hexdigest() == env["response_sha256"]
     assert "SECRET-KEY-123" not in raw.read_text() and "apiKey" not in raw.read_text()
-    q = pd.read_csv(tmp_path / "quotes_v2.csv")
+    q = pd.read_csv(tmp_path / "quotes" / "quotes_20261016T120000Z_thu_scheduled.csv")
     assert list(q.columns) == O.QUOTE_FIELDS and len(q) == 6 and s["quote_rows"] == 6
+    assert len(O.load_quotes(tmp_path)) == 6
     assert set(q.snapshot_id) == {"20261016T120000Z_thu_scheduled"}
     assert s["games_for_weather"] == [("2026_07_SEA_DEN", "2026-10-18T17:00:00+00:00")]
 
@@ -137,7 +138,12 @@ def test_cost_anomaly_keeps_data_and_stops(tmp_path, api):
     api.last = "2"
     with pytest.raises(O.CostAnomalyError):
         O.take_snapshot("manual", schedules=SCHED, odds_dir=tmp_path, now=SNAP_DT)
-    assert len(list((tmp_path / "raw").glob("*.json"))) == 1 and (tmp_path / "quotes_v2.csv").exists()
+    assert len(list((tmp_path / "raw").glob("totals_*.json"))) == 1 and len(O.load_quotes(tmp_path)) == 6
+    assert O.halt_files(tmp_path)                                   # HALT marker written
+    api.last = "1"
+    with pytest.raises(O.BudgetError, match="halted"):             # every later pull refused, nothing spent
+        O.take_snapshot("manual", schedules=SCHED, odds_dir=tmp_path, now=SNAP_DT)
+    assert api.calls == 1
 
 
 def test_invalid_kinds_rejected(tmp_path, api):
@@ -148,13 +154,12 @@ def test_invalid_kinds_rejected(tmp_path, api):
 
 def test_historical_raw_snapshots_are_never_rewritten(tmp_path, api):
     O.take_snapshot("thu_scheduled", schedules=SCHED, odds_dir=tmp_path, now=SNAP_DT)
-    before = {p.name: p.read_bytes() for p in (tmp_path / "raw").iterdir()}
-    qbefore = (tmp_path / "quotes_v2.csv").read_bytes()
+    before = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     api.body = json.dumps([event([book("draftkings", 44.5, -110, 44.5, -110)])]).encode()
     O.take_snapshot("manual", schedules=SCHED, odds_dir=tmp_path, now=SNAP_DT)
-    for name, data in before.items():
-        assert (tmp_path / "raw" / name).read_bytes() == data
-    assert (tmp_path / "quotes_v2.csv").read_bytes().startswith(qbefore)
+    for rel, data in before.items():
+        assert (tmp_path / rel).read_bytes() == data                # every earlier file byte-identical
+    assert len(list((tmp_path / "quotes").glob("*.csv"))) == 2
 
 
 def test_legacy_v1_raw_is_reparsed_as_legacy_current(tmp_path):
@@ -164,3 +169,28 @@ def test_legacy_v1_raw_is_reparsed_as_legacy_current(tmp_path):
     q = O.quotes_from_raw(tmp_path, SCHED)
     assert set(q.snapshot_kind) == {"legacy_current"} and len(q) == 6
     assert set(q.snapshot_id) == {"20261015T180351Z_legacy_current"}
+
+
+def test_missing_balance_header_fails_closed(tmp_path, api, monkeypatch):
+    monkeypatch.setattr(O, "fetch_balance", lambda: {"remaining": None, "used": None})
+    with pytest.raises(O.BudgetError, match="fail closed"):
+        O.take_snapshot("manual", schedules=SCHED, odds_dir=tmp_path, now=SNAP_DT)
+    assert api.calls == 0
+
+
+def test_pregame_pull_rechecks_before_paying(tmp_path, api):
+    kick = "2026-10-18T17:00:00+00:00"
+    late = datetime(2026, 10, 18, 17, 1, tzinfo=timezone.utc)       # queued job runs after kickoff
+    with pytest.raises(O.PregameNotNeeded):
+        O.take_snapshot("pregame_window", schedules=SCHED, odds_dir=tmp_path, target_kickoffs=[kick], now=late)
+    raw = tmp_path / "raw"; raw.mkdir()
+    (raw / "totals_20261018T164000Z_pregame_window.json").write_text("{}")   # another pull already covered T-20
+    with pytest.raises(O.PregameNotNeeded):
+        O.take_snapshot("pregame_window", schedules=SCHED, odds_dir=tmp_path, target_kickoffs=[kick],
+                        now=datetime(2026, 10, 18, 16, 45, tzinfo=timezone.utc))
+    assert api.calls == 0
+
+
+def test_legacy_file_is_not_counted_as_a_phase4_pull():
+    from src.nfl.market.timing import pulls_this_week
+    assert pulls_this_week(SNAP_DT, ["totals_20261015T180351Z_current.json", "totals_20261015T225438Z_manual.json"]) == 1

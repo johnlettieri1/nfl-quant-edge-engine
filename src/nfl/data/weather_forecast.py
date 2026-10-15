@@ -6,7 +6,9 @@ No API key. One batched request per snapshot (outdoor + retractable venues only)
 
   data/weather/raw/forecast_<UTC ts>.json   envelope `weather_raw_v1` (request params, response bytes
                                             + SHA-256, linked snapshot_id). Created exclusively.
-  data/weather/forecasts_v1.csv             one row per (snapshot, game), append-only.
+  data/weather/forecasts/forecasts_<snapshot_id>.csv  one row per game for that snapshot; one new file per
+                                            snapshot (exclusive create). The Oct 15 2026 validation rows live
+                                            in the earlier combined data/weather/forecasts_v1.csv; readers load both.
 
 Roof handling: dome -> recorded, weather_actionable "no" (not requested); retractable ->
 requested, "conditional" (excluded from the primary pre-registered test); outdoors -> "yes";
@@ -26,7 +28,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from src.nfl.data.odds_snapshot import append_rows_atomic, write_exclusive
+from src.nfl.data.odds_snapshot import _csv_bytes, write_exclusive
 from src.nfl.market import phase4_config as C
 from src.nfl.market.timing import parse_utc, snapshot_ts
 
@@ -35,7 +37,8 @@ logger = logging.getLogger(__name__)
 WEATHER_DIR = Path("data/weather")
 STADIUMS_CSV = Path(__file__).with_name("stadiums.csv")
 RAW_SCHEMA = "weather_raw_v1"
-FORECAST_FILE = "forecasts_v1.csv"
+FORECAST_FILE = "forecasts_v1.csv"      # legacy combined file (validation snapshot only)
+FORECAST_DIR = "forecasts"
 FIELDS = ["snapshot_id", "retrieved_at", "game_id", "venue_id", "lat", "lon", "grid_lat", "grid_lon", "roof_type",
           "weather_actionable", "forecast_model", "model_run_time", "kickoff_utc", "valid_start_utc", "valid_end_utc",
           "hours_ahead", "temp_f_kickoff", "wind_mph_kickoff", "wind_mph_window_mean", "wind_mph_window_max",
@@ -157,6 +160,9 @@ def capture_for_snapshot(snapshot_id: str, games: list[tuple[str, str]], schedul
         path = write_exclusive(weather_dir / "raw" / f"forecast_{snapshot_ts(retrieved)}.json",
                                json.dumps(env, indent=1).encode("utf-8"))
         raw_name = path.name
+        # The forecast counts as retrieved when the response arrived, not when it was requested.
+        retrieved = datetime.now(timezone.utc) if now is None else retrieved
+        plan = [p for p in plan if p[1] > retrieved]
         if resp.status_code == 200:
             data = json.loads(body)
             data = data if isinstance(data, list) else [data]
@@ -166,7 +172,7 @@ def capture_for_snapshot(snapshot_id: str, games: list[tuple[str, str]], schedul
     rows = []
     for gid, kickoff, hours, v in plan:
         base = {"snapshot_id": snapshot_id, "retrieved_at": retrieved.isoformat(), "game_id": gid,
-                "kickoff_utc": kickoff.isoformat(), "hours_ahead": round(hours, 2),
+                "kickoff_utc": kickoff.isoformat(), "hours_ahead": round((kickoff - retrieved).total_seconds() / 3600, 2),
                 "forecast_model": "best_match", "model_run_time": "DATA UNAVAILABLE",
                 "raw_file": raw_name, "response_sha256": sha}
         if v is None:
@@ -183,10 +189,14 @@ def capture_for_snapshot(snapshot_id: str, games: list[tuple[str, str]], schedul
             rows.append({**base, "data_status": "DATA UNAVAILABLE: no forecast for the game window"})
             continue
         rows.append({**base, "grid_lat": blk.get("latitude"), "grid_lon": blk.get("longitude"), **summ, "data_status": "ok"})
-    append_rows_atomic(weather_dir / FORECAST_FILE, rows, FIELDS)
+    if rows:
+        write_exclusive(weather_dir / FORECAST_DIR / f"forecasts_{snapshot_id}.csv", _csv_bytes(rows, FIELDS))
     return {"snapshot_id": snapshot_id, "venues_requested": len(venues), "rows": len(rows), "raw_file": raw_name}
 
 
 def load_forecasts(weather_dir: Path = WEATHER_DIR) -> pd.DataFrame:
-    p = weather_dir / FORECAST_FILE
-    return pd.read_csv(p) if p.exists() else pd.DataFrame(columns=FIELDS)
+    paths = ([weather_dir / FORECAST_FILE] if (weather_dir / FORECAST_FILE).exists() else []) + \
+        sorted((weather_dir / FORECAST_DIR).glob("forecasts_*.csv"))
+    if not paths:
+        return pd.DataFrame(columns=FIELDS)
+    return pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)

@@ -136,6 +136,8 @@ def plan_pregame(now: datetime, kickoffs: list[datetime], existing_raw_names: li
     """Decide whether to spend one credit now. kickoffs = commence times of listed events
     (from the free /events endpoint). Existing snapshots of ANY kind count as coverage."""
     now = parse_utc(now)
+    if any(n.rsplit("/", 1)[-1].startswith("HALT_") for n in existing_raw_names):
+        return PregameDecision(False, "halted: a HALT file exists in data/odds/raw")
     snaps = [ts for ts, _ in (p for p in (parse_raw_name(n) for n in existing_raw_names) if p)]
     slots = sorted({parse_utc(k) for k in kickoffs})
     wanted = []
@@ -164,4 +166,4 @@ def plan_pregame(now: datetime, kickoffs: list[datetime], existing_raw_names: li
 def pulls_this_week(now: datetime, existing_raw_names: list[str]) -> int:
     start = nfl_week_start(now)
     return sum(1 for p in (parse_raw_name(n) for n in existing_raw_names)
-               if p and p[0] >= start and p[1] != "legacy_current")
+               if p and p[0] >= start and p[1] in C.ALL_KINDS and p[1] != "legacy_current")

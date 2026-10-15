@@ -6,8 +6,10 @@
 # Cost control:
 #   - The `gate` job runs every 10 minutes in the UTC windows below. It uses only the FREE /events
 #     endpoint and the records file list, needs no package install, and never spends a credit.
-#   - The `pull` job runs only when the gate finds an uncovered kickoff slot in the window. It spends
-#     1 credit (frozen 10-book list) after a free balance preflight (reserve 60, weekly cap 30).
+#   - The `pull` job runs only when the gate finds an uncovered kickoff slot in the window. Right before
+#     paying it re-checks the plan against the latest records (a queued job never pays after kickoff or
+#     for a slot another pull already covered), then spends 1 credit (frozen 10-book list) after a free
+#     balance preflight (reserve 60, weekly cap 30, fail closed, any HALT file stops everything).
 # Windows cover NFL kickoffs in both EDT and EST, plus dated windows for the 2026 off-day games
 # (Wed Nov 25, Thanksgiving Nov 26, Fri Nov 27, Saturdays in Dec/Jan, Christmas Fri Dec 25).
 # GitHub may delay scheduled runs; the planner labels what actually happened.
@@ -49,9 +51,11 @@ jobs:
             src/nfl/market
       - name: List records raw snapshot files (no blobs downloaded)
         run: |
+          # A failed listing must NOT look like "no snapshots yet": fail the gate instead (no pull).
           git clone --quiet --depth 1 --filter=blob:none --no-checkout --branch records \
-            "https://github.com/${{ github.repository }}.git" rec || mkdir -p rec
-          (git -C rec ls-tree -r --name-only HEAD data/odds/raw 2>/dev/null || true) | sed 's#.*/##' > raw_names.txt
+            "https://github.com/${{ github.repository }}.git" rec
+          git -C rec ls-tree -r --name-only HEAD data/odds/raw | sed 's#.*/##' > raw_names.txt
+          test -s raw_names.txt
           wc -l raw_names.txt
       - name: Plan (free /events only)
         id: plan
@@ -65,7 +69,7 @@ jobs:
     if: needs.gate.outputs.pull == 'true'
     runs-on: ubuntu-latest
     concurrency:
-      group: weekly-records
+      group: pregame-records      # separate from weekly: a pregame pull can never displace a pending weekly run
       cancel-in-progress: false
     steps:
       - name: Check out source (main, read-only use)
@@ -93,17 +97,20 @@ jobs:
       - name: Schedules only (for game_id matching and venues)
         working-directory: code
         run: python run.py data --schedules-only
-      - name: Pregame odds snapshot + forecast weather (1 credit)
+      - name: Pregame odds snapshot + forecast weather (1 credit; re-checks the plan first, skips at 0 credits)
         working-directory: code
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: python run.py odds --kind pregame_window --trigger pregame_planner --targets '${{ needs.gate.outputs.targets }}'
       - name: Copy records
+        if: always()
         run: |
           cp -a code/data/odds/. records/data/odds/
           mkdir -p records/data/weather
           cp -a code/data/weather/. records/data/weather/ 2>/dev/null || true
       - name: Guard
+        id: guard
+        if: always()
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: |
@@ -111,8 +118,14 @@ jobs:
           python code/src/nfl/ops/records_guard.py --repo records
           git -C records diff --cached --stat
       - name: Commit and push to records
+        if: always() && steps.guard.outcome == 'success'
         working-directory: records
         run: |
           git -c user.name="pregame-bot" -c user.email="pregame-bot@users.noreply.github.com" \
             commit -q -m "records: pregame_window snapshot $(date -u +%Y-%m-%dT%H:%MZ)" || { echo "nothing to commit"; exit 0; }
-          git push origin HEAD:refs/heads/records
+          for i in 1 2 3; do
+            if git push origin HEAD:refs/heads/records; then exit 0; fi
+            # every snapshot writes NEW files only, so a concurrent records commit rebases cleanly
+            git -c user.name="pregame-bot" -c user.email="pregame-bot@users.noreply.github.com" pull --rebase --quiet origin records
+          done
+          echo "::error title=records::push failed after 3 attempts"; exit 1

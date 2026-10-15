@@ -156,7 +156,10 @@ def test_weekly_workflow_records_guard_unchanged():
         assert "python code/src/nfl/ops/records_guard.py --repo records" in wf
         assert "cp -a code/data/odds/. records/data/odds/" in wf
         pushes = re.findall(r"git push[^\n]*", wf)
-        assert pushes and all(p.strip() == "git push origin HEAD:refs/heads/records" for p in pushes)
+        # exact refspec; the Phase 4 retry loop wraps the same push as `if git push ...; then exit 0; fi`
+        assert pushes and all(re.fullmatch(r"git push origin HEAD:refs/heads/records(; then exit 0; fi)?", p.strip())
+                              for p in pushes)
+        assert not re.search(r"git push[^\n]*(--force|-f\b)", wf) and "refs/heads/main" not in wf
     wf = (ROOT / ".github" / "workflows" / "weekly.yml").read_text()
     assert "cp -a code/data/predictions/. records/data/predictions/" in wf
     assert ALLOWED_PREFIXES == ("data/odds/", "data/predictions/", "data/weather/")

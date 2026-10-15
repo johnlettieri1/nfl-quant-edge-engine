@@ -40,11 +40,29 @@ Credit balance after all pre-collection work: **496 of 500** (1 pre-spec snapsho
 5. **Legacy v1 ledger.** Until this PR merges, `main`'s Tuesday run will still create the old
    `totals_ledger.csv` for the Oct 15 Week 6 prediction snapshot. Phase 4 writes only
    `totals_ledger_v2.csv`; the v1 file is left untouched (append-only) and is not used.
-6. **Concurrency.** The planner's pull job shares the `weekly-records` group with the weekly job so
-   records pushes never collide. GitHub keeps at most one pending run per group, so in a rare overlap
-   (planner pull running, weekly pending, a second planner pull queued) the pending weekly run can be
-   replaced. The gate job is outside the group, so this needs two pulls in a row while a weekly run waits.
+6. **Concurrency and file layout (changed after independent review).** Each snapshot now writes its own
+   new files (`data/odds/quotes/quotes_<snapshot_id>.csv`, `data/weather/forecasts/forecasts_<snapshot_id>.csv`)
+   instead of appending to one shared CSV. The validation snapshot stays in the combined files it was written
+   to (`quotes_v2.csv`, `forecasts_v1.csv`, untouched); readers load both. Because the weekly job and the
+   planner now only ADD different files, they use separate concurrency groups (`weekly-records`,
+   `pregame-records`) and a push retries with a rebase. A pregame pull can no longer displace a pending
+   weekly run. Remaining edge: if a weekly run and a pregame pull run at the same moment (for example
+   Sunday 9:10 AM ET with a 9:30 AM ET London game), the planner may not yet see the weekly snapshot and can
+   pay for one extra pull (at most 1 credit, rare).
 7. **Planner volume.** About 138 short gate runs a normal week (more in December and holiday weeks).
    The repo is public, so these cost no Actions minutes; each gate run spends no Odds API credit.
 8. **Pregame prediction cadence is unchanged.** Pregame and Sunday-night pulls capture odds and weather
    only; prediction snapshots still run Thu/Sat/Sun morning.
+9. **Review fixes (independent reviewer, before the PR).**
+   - A pull that costs more than 1 credit writes `data/odds/raw/HALT_cost_anomaly_<ts>.json`; every later
+     pull (weekly and planner) is refused until John approves removing it.
+   - Copy, Guard and Commit steps run even when an earlier step failed, so anything already paid for is
+     committed to records (and counted by the weekly cap).
+   - The planner's pull job re-checks the plan immediately before paying: it never pays after kickoff, inside
+     T-5, or for a slot another pull already covered while it waited.
+   - A missing credit-balance header now refuses the pull (fail closed).
+   - A failed records listing fails the planner gate instead of looking like "no snapshots yet".
+   - Same-line consensus prices and probabilities are blank when fewer than 2 books post the canonical line.
+   - Weather `retrieved_at` is the time the response arrived; any game whose kickoff passed during the
+     request is dropped.
+   - The pre-spec legacy file is no longer counted toward the weekly pull cap.

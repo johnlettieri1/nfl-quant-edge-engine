@@ -16,7 +16,9 @@
 #   2. Only data/odds, data/predictions and data/weather are copied to the records checkout.
 #   3. src/nfl/ops/records_guard.py fails the job on any other path, any modified/deleted immutable
 #      record, any rewritten append-only CSV, or any API key in staged content.
-#   4. The push refspec is hard-coded to refs/heads/records.
+#   4. The push refspec is hard-coded to refs/heads/records (retried with a rebase if the pregame
+#      planner pushed in between; both workflows only ADD files there, except this job's predictions index
+#      and ledger, which the planner never touches).
 #
 # Requires repository secret ODDS_API_KEY. Open-Meteo needs no key.
 name: Weekly totals
@@ -122,8 +124,10 @@ jobs:
         working-directory: code
         run: python run.py predict
 
+      # Copy/Guard/Commit run even if an earlier step failed, so anything already paid for (for example a
+      # pull stopped by the cost-anomaly check, which also writes a HALT file) is still committed to records.
       - name: Copy records (data/odds, data/predictions, data/weather only)
-        if: steps.gate.outputs.kind != 'none'
+        if: always() && steps.gate.outputs.kind != 'none'
         run: |
           mkdir -p records/data/odds records/data/predictions records/data/weather
           cp -a code/data/odds/. records/data/odds/
@@ -131,7 +135,8 @@ jobs:
           cp -a code/data/weather/. records/data/weather/ 2>/dev/null || true
 
       - name: Guard (records-only paths, immutable, append-only, no secrets)
-        if: steps.gate.outputs.kind != 'none'
+        id: guard
+        if: always() && steps.gate.outputs.kind != 'none'
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: |
@@ -140,9 +145,14 @@ jobs:
           git -C records diff --cached --stat
 
       - name: Commit and push to records
-        if: steps.gate.outputs.kind != 'none'
+        if: always() && steps.gate.outputs.kind != 'none' && steps.guard.outcome == 'success'
         working-directory: records
         run: |
           git -c user.name="weekly-bot" -c user.email="weekly-bot@users.noreply.github.com" \
             commit -q -m "records: ${{ steps.gate.outputs.kind }} snapshot $(date -u +%Y-%m-%dT%H:%MZ)" || { echo "nothing to commit"; exit 0; }
-          git push origin HEAD:refs/heads/records
+          for i in 1 2 3; do
+            if git push origin HEAD:refs/heads/records; then exit 0; fi
+            # every snapshot writes NEW files only, so a concurrent records commit rebases cleanly
+            git -c user.name="weekly-bot" -c user.email="weekly-bot@users.noreply.github.com" pull --rebase --quiet origin records
+          done
+          echo "::error title=records::push failed after 3 attempts"; exit 1
