@@ -11,21 +11,21 @@ src/nfl/features/phase3a_config.py. Two stages, both leak-free:
      own value folded into the team's running sums. A game can therefore never
      see itself or any later game.
 
-Team identity: nflverse play-by-play uses current franchise codes for every
-season (LA, LAC, LV) while schedules use the code of the day (STL, SD, OAK).
-Both sides are normalized to the current franchise code here (FRANCHISE map),
+Team identity: relocated-team aliases (STL/SD/OAK) are normalized to current
+franchise codes by the separate data-quality module src/nfl/data/team_aliases.py,
 so a team's history is continuous across relocations and play-by-play rows
-match schedule rows. (The frozen ridge8_v1 baseline does not do this; see the
-Phase 3A report.)
+match schedule rows. (The frozen ridge8_v1 baseline does not do this; see
+docs/phase3a/DATA_QUALITY_RELOCATED_TEAMS.md.)
 """
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
+from src.nfl.data.team_aliases import RELOCATED_TEAM_ALIASES, normalize_schedule_team_codes, normalize_team_code
 from src.nfl.features import phase3a_config as C
 
-FRANCHISE = {"STL": "LA", "SD": "LAC", "OAK": "LV"}
+FRANCHISE = RELOCATED_TEAM_ALIASES  # back-compat name
 
 TEAM_METRICS = [
     "off_pts", "def_pts", "off_epa", "def_epa", "off_pass_epa", "off_rush_epa", "off_sr", "def_sr",
@@ -35,15 +35,11 @@ TEAM_METRICS = [
 ]
 
 
-def normalize_team(code):
-    return FRANCHISE.get(code, code)
+normalize_team = normalize_team_code  # back-compat name
 
 
 def normalize_schedule_teams(games: pd.DataFrame) -> pd.DataFrame:
-    g = games.copy()
-    g["home_team"] = g["home_team"].map(normalize_team)
-    g["away_team"] = g["away_team"].map(normalize_team)
-    return g
+    return normalize_schedule_team_codes(games)
 
 
 def _mmss_to_seconds(s: pd.Series) -> pd.Series:

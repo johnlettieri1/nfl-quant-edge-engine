@@ -25,6 +25,9 @@ the script changes into the repo root so relative data/ paths resolve.
   python run.py data-style [--first-season 1999] [--last-season 2022]
       Phase 3A: extended play-by-play cache (pace, PROE, drives, explosives). Defaults stop at 2022
       so the 2023-2025 holdout is never downloaded for research.
+  python run.py alias-check --frozen DIR [--out data/processed/alias_fix]
+      Data-quality check: ridge8_v1 as frozen vs the same model with relocated-team codes
+      (STL/SD/OAK) normalized, on 2015-2022. Measures only; changes nothing.
   python run.py phase3a [--out data/processed/phase3a] [--frozen DIR]
       Phase 3A: build every candidate beside ridge8_v1 on 2015-2022, then evaluate against the
       frozen Phase 2A predictions in DIR (default: the in-repo baseline re-run).
@@ -136,6 +139,12 @@ def cmd_phase3a(a):
     print(json.dumps(rows, indent=1))
 
 
+def cmd_alias_check(a):
+    from src.nfl.backtest.alias_fix_check import run_alias_fix_check
+    res = run_alias_fix_check(Path(a.out), Path(a.frozen))
+    print(json.dumps(res, indent=1, default=float))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -150,6 +159,7 @@ def main():
     s = sub.add_parser("data-style"); s.add_argument("--first-season", type=int, default=1999); s.add_argument("--last-season", type=int, default=2022)
     s.add_argument("--force", action="store_true"); s.set_defaults(fn=cmd_data_style)
     s = sub.add_parser("phase3a"); s.add_argument("--out", default="data/processed/phase3a"); s.add_argument("--frozen"); s.add_argument("--skip-build", action="store_true"); s.set_defaults(fn=cmd_phase3a)
+    s = sub.add_parser("alias-check"); s.add_argument("--frozen", required=True); s.add_argument("--out", default="data/processed/alias_fix"); s.set_defaults(fn=cmd_alias_check)
     s = sub.add_parser("test"); s.add_argument("--leakage-only", action="store_true"); s.set_defaults(fn=cmd_test)
     a = p.parse_args(); a.fn(a)
 

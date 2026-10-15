@@ -284,7 +284,7 @@ The leave-one-out and half-life variants also fail rules 1 to 3. Nothing was tun
 **`ridge8_v1`, unchanged, as the live weekly model.** It keeps posting leans at 0 units, as it does now. Nothing in the weekly workflow changes.
 
 - **No `phase3a_v1` is created.** No candidate earned it.
-- **The team-code fix is ready** (in `phase3a_features.normalize_schedule_teams`). It should become part of the next model version that changes for a real reason, not shipped alone, because on its own it changes nothing measurable.
+- **The team-code fix is ready** as a separate data-quality module (`src/nfl/data/team_aliases.py`, details and impact in `DATA_QUALITY_RELOCATED_TEAMS.md`). It should become part of the next model version that changes for a real reason, not shipped alone, because on its own it changes nothing measurable.
 - **The Phase 3A code stays in the repo** as research tooling. It is not in the weekly path.
 
 ## 14. Recommendation for Phase 3B
