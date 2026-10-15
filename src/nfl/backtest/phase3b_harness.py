@@ -18,7 +18,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.nfl.backtest.phase3a_harness import ALL, A, B, Cx, D, assemble, build_feature_frames, walk_forward_generic
+from src.nfl.backtest.phase3a_harness import ALL, A, B, Cx, D, _load_dev_inputs, assemble, build_feature_frames, walk_forward_generic
+from src.nfl.data.ingest_context import load_context
+from src.nfl.features.phase3b_context import build_injuries, build_qb, build_weather
 from src.nfl.features import phase3a_config as C3
 from src.nfl.models.residual import phase3b_config as C
 from src.nfl.models.residual.calibration import no_vig_over, walk_forward_calibrate
@@ -123,3 +125,40 @@ def run_phase3b_1(out_dir: Path, raw_dir: Path | None = None) -> dict:
             "python": sys.version.split()[0], "pandas": pd.__version__, "numpy": np.__version__}
     (out_dir / "phase3b1_meta.json").write_text(json.dumps(meta, indent=2))
     return {"frames": frames, "meta": meta}
+
+
+# ----------------------------------------------------------------------------- 3B-3 context groups
+W, I, Q = C.WEATHER_FEATURES, C.INJURY_FEATURES, C.QB_FEATURES
+INJ0 = C.INJURY_FIRST_SEASON
+CONTEXT_MODELS: dict[str, tuple[str, list[str], dict | None, int]] = {
+    "r1_wx": ("fix", R8 + W, None, C.FIRST_SEASON),
+    "r1_qb": ("fix", R8 + Q, None, C.FIRST_SEASON),
+    "r1_2012": ("fix", R8, None, INJ0),            # identical-window control for the injury group
+    "r1_inj": ("fix", R8 + I, None, INJ0),
+    "r0_wx": ("fix", LINE + W, None, C.FIRST_SEASON),
+    "r0_qb": ("fix", LINE + Q, None, C.FIRST_SEASON),
+    "r0_2012": ("fix", LINE, None, INJ0),
+    "r0_inj": ("fix", LINE + I, None, INJ0),
+    "r1_all_context": ("fix", R8 + W + Q + I, None, INJ0),   # exploratory only
+}
+
+
+def build_context(raw_dir: Path | None = None) -> tuple[pd.DataFrame, dict]:
+    games, pbp, _ = _load_dev_inputs(raw_dir, C.HOLDOUT_START)
+    ctx = load_context(raw_dir) if raw_dir else load_context()
+    w = build_weather(games, ctx["weather_text"])
+    i, audit = build_injuries(games, ctx["injuries"], ctx["snap_counts"], ctx["players"])
+    q = build_qb(games, pbp)
+    out = w.merge(q, on="game_id", how="outer", validate="one_to_one").merge(i, on="game_id", how="left", validate="one_to_one")
+    assert out.game_id.str[:4].astype(int).max() < C.HOLDOUT_START
+    return out, audit
+
+
+def run_phase3b_3(out_dir: Path, raw_dir: Path | None = None, frames: dict | None = None) -> dict:
+    frames = frames or build_feature_frames(raw_dir, C.HOLDOUT_START, half_lives=(C3.HALF_LIFE_PRIMARY,))
+    extra, audit = build_context(raw_dir)
+    preds, logs = run_models(CONTEXT_MODELS, frames, extra)
+    write(preds, logs, out_dir, "3b3")
+    extra.to_csv(out_dir / "context_features.csv", index=False)
+    (out_dir / "injury_audit.json").write_text(json.dumps(audit, indent=1))
+    return {"audit": audit, "models": list(preds)}

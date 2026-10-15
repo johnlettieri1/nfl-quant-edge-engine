@@ -25,6 +25,13 @@ the script changes into the repo root so relative data/ paths resolve.
   python run.py data-style [--first-season 1999] [--last-season 2022]
       Phase 3A: extended play-by-play cache (pace, PROE, drives, explosives). Defaults stop at 2022
       so the 2023-2025 holdout is never downloaded for research.
+  python run.py phase3b [--out data/processed/phase3b] [--skip-build]
+      Phase 3B: walk-forward market-residual candidates + walk-forward calibration on 2015-2022,
+      beside ridge8_v1, p3a_c3_xpl and the zero-residual market model. Holdout never loaded.
+  python run.py data-context
+      Phase 3B-3 inputs (weather text, injuries, snap counts, player ids), through 2022 only.
+  python run.py phase3b --context
+      Phase 3B-3: weather, injury and QB groups as residual predictors (after 3B-1).
   python run.py alias-check --frozen DIR [--out data/processed/alias_fix]
       Data-quality check: ridge8_v1 as frozen vs the same model with relocated-team codes
       (STL/SD/OAK) normalized, on 2015-2022. Measures only; changes nothing.
@@ -139,6 +146,35 @@ def cmd_phase3a(a):
     print(json.dumps(rows, indent=1))
 
 
+def cmd_phase3b(a):
+    from src.nfl.backtest.phase3b_eval import evaluate_dir
+    from src.nfl.backtest.phase3b_harness import RESIDUAL_MODELS, run_phase3b_1
+    out = Path(a.out)
+    if not a.skip_build and not a.context:
+        run_phase3b_1(out / "predictions")
+    from src.nfl.backtest.phase3b_harness import CONTEXT_MODELS, run_phase3b_3
+    if a.context:
+        if not a.skip_build:
+            run_phase3b_3(out / "predictions")
+        ids = ["m0_market", "ridge8_v1", "r0_line", "r1_ridge8"] + list(CONTEXT_MODELS)
+        res = evaluate_dir(out / "predictions", ids, out / "phase3b3_results.json")
+    else:
+        ids = ["m0_market", "ridge8_v1", "p3a_c3_xpl"] + list(RESIDUAL_MODELS)
+        res = evaluate_dir(out / "predictions", ids, out / "phase3b1_results.json")
+    rows = []
+    for m in ids:
+        r = res[m]; rl = r["residual"]; pl = r["prob"][r["calibrator_chosen"]]
+        rows.append({"model": m, "pearson": round(rl.get("pearson", float("nan")), 4), "r2": round(rl["oos_r2"], 5),
+                     "win_slope_p": round(rl.get("win_slope_p", float("nan")), 3), "cal": r["calibrator_chosen"],
+                     "brier": round(pl["brier"], 5), "ece_pick": round(pl["ece_pick"], 4), "advance": r["keep_rule"]["advance"]})
+    print(json.dumps(rows, indent=1))
+
+
+def cmd_data_context(a):
+    from src.nfl.data.ingest_context import fetch_context
+    print(json.dumps(fetch_context()))
+
+
 def cmd_alias_check(a):
     from src.nfl.backtest.alias_fix_check import run_alias_fix_check
     res = run_alias_fix_check(Path(a.out), Path(a.frozen))
@@ -159,6 +195,9 @@ def main():
     s = sub.add_parser("data-style"); s.add_argument("--first-season", type=int, default=1999); s.add_argument("--last-season", type=int, default=2022)
     s.add_argument("--force", action="store_true"); s.set_defaults(fn=cmd_data_style)
     s = sub.add_parser("phase3a"); s.add_argument("--out", default="data/processed/phase3a"); s.add_argument("--frozen"); s.add_argument("--skip-build", action="store_true"); s.set_defaults(fn=cmd_phase3a)
+    s = sub.add_parser("phase3b"); s.add_argument("--out", default="data/processed/phase3b"); s.add_argument("--skip-build", action="store_true")
+    s.add_argument("--context", action="store_true", help="3B-3 weather/injury/QB groups (run after 3B-1)"); s.set_defaults(fn=cmd_phase3b)
+    s = sub.add_parser("data-context"); s.set_defaults(fn=cmd_data_context)
     s = sub.add_parser("alias-check"); s.add_argument("--frozen", required=True); s.add_argument("--out", default="data/processed/alias_fix"); s.set_defaults(fn=cmd_alias_check)
     s = sub.add_parser("test"); s.add_argument("--leakage-only", action="store_true"); s.set_defaults(fn=cmd_test)
     a = p.parse_args(); a.fn(a)
