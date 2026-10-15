@@ -89,14 +89,16 @@ def _pct(p) -> str:
 
 
 def render_summary(snapshot: dict) -> str:
-    """Human-facing weekly view. Shows the CALIBRATED probability only; raw stays in the JSON."""
+    """Human-facing weekly view. Shows the calibrated (historical close-based) probability only; raw stays in the JSON."""
     cal = snapshot["probability_calibration"]
     lines = [f"# Totals leans: {snapshot['season']} Week {snapshot['week']:02d}", "",
              f"Generated {snapshot['generated_at']} | model {snapshot['model_version']} | recommended units: 0 (leans only)", "",
-             f"**Probabilities shown are CALIBRATED** ({cal['calibration_version']}: shrink toward 50%, factor "
-             f"{cal['shrink_factor']}, fit on seasons {cal['training_seasons'][0]}-{cal['training_seasons'][1]} only). "
+             f"**Probabilities shown are CALIBRATED (historical close-based)** ({cal['calibration_version']}: shrink toward "
+             f"50%, factor {cal['shrink_factor']}, fit on seasons {cal['training_seasons'][0]}-{cal['training_seasons'][1]} only). "
              "The raw model probability is kept in the JSON snapshot for audit.", "",
-             "| Game | Date | Market total | Projected total | Edge | Lean | Calibrated P(Over) | Calibrated P(lean) |",
+             "Probability calibration was fitted against historical closing-line outcomes. It has not yet been "
+             "independently validated for this snapshot's market timing.", "",
+             "| Game | Date | Market total | Projected total | Edge | Lean | Calibrated P(Over), close-based | Calibrated P(lean), close-based |",
              "|---|---|---:|---:|---:|---|---:|---:|"]
     for g in snapshot["games"]:
         cp = g.get("calibrated_probability")
@@ -112,7 +114,7 @@ def render_summary(snapshot: dict) -> str:
 
 def generate(season: int | None = None, week: int | None = None, pred_dir: Path = PRED_DIR,
              odds_max_age_hours: float = 48.0) -> Path:
-    cal = load_calibration()
+    cal = load_calibration(model_version=MODEL_VERSION)   # fails closed on a model-version mismatch
     games = load_cached_schedules()
     games["gameday"] = pd.to_datetime(games.gameday)
     if season is None or week is None:

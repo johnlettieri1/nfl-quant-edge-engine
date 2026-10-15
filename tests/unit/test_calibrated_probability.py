@@ -138,7 +138,10 @@ def test_writes_only_under_predictions_and_md_is_labeled(fixture, tmp_path):
     names = sorted(p.name for p in new if p.is_file())
     assert names == sorted([out.name, out.with_suffix(".md").name, "totals_index.json"])
     md = out.with_suffix(".md").read_text()
-    assert "Probabilities shown are CALIBRATED" in md and "Calibrated P(Over)" in md and "\u2014" not in md
+    assert "Probabilities shown are CALIBRATED (historical close-based)" in md and "\u2014" not in md
+    assert "Calibrated P(Over), close-based" in md
+    assert ("Probability calibration was fitted against historical closing-line outcomes. It has not yet been "
+            "independently validated for this snapshot's market timing.") in md
     g = snap["games"][0]
     assert f"{100 * g['calibrated_probability']:.1f}%" in md
 
@@ -153,3 +156,43 @@ def test_weekly_workflow_records_guard_unchanged():
     # not one of the append-only names, so any later modification of it is refused as an immutable record
     assert re.match(r"^data/(odds|predictions)/", "data/predictions/totals_2026_wk07_20261018T131000Z.md")
     assert "data/predictions/totals_2026_wk07_20261018T131000Z.md" not in wf
+
+
+# ----------------------------------------------------------------------------- amendment: version guard, timing scope
+
+def test_model_version_match_succeeds():
+    from src.nfl.models.total.total_model import MODEL_VERSION
+    meta = cal.load_calibration(model_version=MODEL_VERSION)
+    assert meta["model_version"] == MODEL_VERSION == "ridge8_v1"
+
+
+def test_model_version_mismatch_fails_closed(fixture, tmp_path, monkeypatch):
+    with pytest.raises(cal.CalibrationModelVersionError):
+        cal.load_calibration(model_version="ridge9_v2")
+    monkeypatch.setattr(pt, "MODEL_VERSION", "ridge9_v2")      # a future live model with the old artifact
+    pred = tmp_path / "data" / "predictions"
+    with pytest.raises(cal.CalibrationModelVersionError, match="ridge8_v1_shrink_cal_v1"):
+        pt.generate(pred_dir=pred)
+    assert not pred.exists() or not any(pred.iterdir())       # nothing written when the guard trips
+
+
+def test_artifact_without_model_version_is_rejected(tmp_path):
+    bad = json.loads(cal.ARTIFACT.read_text()); bad.pop("model_version")
+    (tmp_path / "bad.json").write_text(json.dumps(bad))
+    with pytest.raises(cal.CalibrationModelVersionError):
+        cal.load_calibration(tmp_path / "bad.json")
+
+
+def test_metadata_states_close_based_fit(fixture, tmp_path):
+    meta = cal.load_calibration()
+    assert meta["historical_market_timing"] == "close" and "closing" in meta["calibration_target"]
+    assert meta["timing_validation_status"].startswith("not yet prospectively validated")
+    assert "snapshot line at prediction time" in meta["live_market_timing"]
+    _, snap = _snapshot(tmp_path)
+    block = snap["probability_calibration"]
+    for k in cal.TIMING_SCOPE_FIELDS:
+        assert block[k] == meta[k]
+    assert block["model_version"] == "ridge8_v1" and block["shrink_factor"] == 0.2861
+    bad = dict(meta); bad.pop("timing_validation_status")
+    with pytest.raises(ValueError):
+        cal.validate(bad)
