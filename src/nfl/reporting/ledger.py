@@ -1,35 +1,23 @@
-"""Totals results ledger with closing-line value (Phase 2B).
+"""Totals results ledger v2 with line/price-correct CLV (Phase 4, spec section 9).
 
-Append-only CSV at data/predictions/totals_ledger.csv. One row per (prediction
-snapshot, game) once the game has a final score. Never edits a snapshot.
+Append-only CSV at data/predictions/totals_ledger_v2.csv (the v1 file was never written). One row
+per (prediction snapshot, game, variant) once the game is final. Research rows only: units are
+always 0, and `side` is the ridge8_v1 research lean, never a bet.
 
-Columns (in this order):
-  game_id, season, week, away_team, home_team, snapshot_file,
-  prediction_ts        when the snapshot was generated (UTC)
-  model_version        e.g. ridge8_v1 (from the snapshot)
-  projected_total
-  bet_side             OVER / UNDER / PASS (model lean until the decision layer exists)
-  line_taken           total line in the snapshot at prediction time
-  price_taken          American price for bet_side at prediction time (if known)
-  line_source          where line_taken came from (odds_snapshot:<ts> or nflverse)
-  closing_line         last pre-kickoff odds snapshot median, else nflverse closing total
-  closing_price        price for bet_side at close (same source rule)
-  closing_source
-  opening_line         Tuesday opener snapshot median, if one exists
-  actual_total
-  result               win / loss / push / none
-  clv_points           favorable line movement for bet_side: OVER -> closing - taken,
-                       UNDER -> taken - closing. Positive = you beat the close.
-  clv_price_prob       implied-probability gain on price: implied(closing) - implied(taken)
-                       for the same side (positive = your price was better). Blank if a
-                       price is missing.
-  units_risked         from the snapshot (0 until the decision layer is built)
-  units_won_lost       at the price taken (0 if units_risked is 0)
-  recorded_at
+Terminology: there is no "closing line" or "opening line" here. The reference is the game's
+last_observed_pregame snapshot (with its close_quality flag); first_observed_line is the earliest
+snapshot we saw. CLV comes from src/nfl/market/clv.py:
+
+  line_clv  OVER: ref_canonical_line - line_taken ; UNDER: line_taken - ref_canonical_line
+  price CLV only at an identical total number (same book, or >= 3-book same-line consensus),
+  otherwise blank. No combined line+price metric.
+
+Variants for each lean: `consensus_all` (canonical line, median price at that line, all observed
+books) and `best_available_ny` (best number and price among NY-actionable books). A lean priced
+from nflverse (no odds snapshot) gets one row, variant `nflverse_line`, with CLV blank.
 """
 from __future__ import annotations
 
-import csv
 import json
 import logging
 from datetime import datetime, timezone
@@ -37,27 +25,29 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.nfl.data.odds_snapshot import load_game_summary, latest_pregame_summary, opener_summary
+from src.nfl.data.odds_snapshot import ODDS_DIR, append_rows_atomic, quotes_from_raw
+from src.nfl.market.clv import build_clv_events, edge_bucket
+from src.nfl.market.phase4_config import FORWARD_SEASON_MIN
+from src.nfl.market.line_shopping import build_line_shopping
+from src.nfl.market.movement import apply_game_kickoff, build_movement
 
 logger = logging.getLogger(__name__)
 
+SCHEMA = "totals_ledger_v2"
 PRED_DIR = Path("data/predictions")
-LEDGER = PRED_DIR / "totals_ledger.csv"
+LEDGER = PRED_DIR / "totals_ledger_v2.csv"
+LEAN_VARIANTS = ("consensus_all", "best_available_ny")
 FIELDS = ["game_id", "season", "week", "away_team", "home_team", "snapshot_file", "prediction_ts", "model_version",
-          "projected_total", "bet_side", "line_taken", "price_taken", "line_source",
-          "closing_line", "closing_price", "closing_source", "opening_line",
-          "actual_total", "result", "clv_points", "clv_price_prob", "units_risked", "units_won_lost", "recorded_at"]
+          "action_snapshot_id", "action_ts", "minutes_to_kickoff_at_action", "side", "variant",
+          "line_taken", "price_taken", "book_taken", "ref_snapshot_id", "ref_ts", "ref_minutes_to_kickoff",
+          "ref_close_quality", "ref_canonical_line", "ref_median_line", "line_clv", "line_clv_vs_median",
+          "price_clv_same_book", "price_clv_same_line_consensus", "fair_ev_vs_ref", "first_observed_line",
+          "projected_total", "model_edge", "edge_bucket", "raw_model_probability", "calibrated_probability",
+          "actual_total", "result", "units_risked", "recorded_at", "schema_version"]
 
 
-def implied_prob(american: float | None) -> float | None:
-    if american is None or pd.isna(american):
-        return None
-    a = float(american)
-    return 100.0 / (a + 100.0) if a > 0 else -a / (-a + 100.0)
-
-
-def settle(side: str, line: float, actual_total: float) -> str:
-    if side not in ("OVER", "UNDER"):
+def settle(side: str, line: float | None, actual_total: float) -> str:
+    if side not in ("OVER", "UNDER") or line is None:
         return "none"
     if actual_total == line:
         return "push"
@@ -66,105 +56,105 @@ def settle(side: str, line: float, actual_total: float) -> str:
     return "win" if actual_total < line else "loss"
 
 
-def clv_points(side: str, line_taken: float, closing_line: float | None) -> float | None:
-    if closing_line is None or pd.isna(closing_line) or side not in ("OVER", "UNDER"):
-        return None
-    return round(float(closing_line - line_taken) if side == "OVER" else float(line_taken - closing_line), 2)
-
-
-def clv_price(price_taken: float | None, closing_price: float | None) -> float | None:
-    a, b = implied_prob(price_taken), implied_prob(closing_price)
-    if a is None or b is None:
-        return None
-    return round(b - a, 4)
-
-
-def pnl(result: str, price_taken: float | None, units: float) -> float:
-    if units == 0 or result in ("push", "none"):
-        return 0.0
-    p = implied_prob(price_taken) if price_taken is not None else implied_prob(-110)
-    b = (1 - p) / p  # decimal profit per unit
-    return round(units * b, 4) if result == "win" else round(-units, 4)
-
-
-def build_row(snapshot: dict, snapshot_file: str, game: dict, sched_row: pd.Series, odds_summary: pd.DataFrame | None) -> dict | None:
-    if pd.isna(sched_row["home_score"]) or pd.isna(sched_row["away_score"]):
-        return None
-    actual = float(sched_row["home_score"] + sched_row["away_score"])
-    side = game.get("lean") or "PASS"
-    line_taken = game.get("market_total")
-    if line_taken is None:
-        return None
-    price_taken = game.get("over_price") if side == "OVER" else game.get("under_price") if side == "UNDER" else None
-    gid = game["game_id"]
-    pre = latest_pregame_summary(gid, summary=odds_summary) if odds_summary is not None else None
-    if pre is not None:
-        closing_line = float(pre["market_median"]); closing_source = f"odds_snapshot:{pre['snapshot_ts']}"
-        closing_price = pre["best_over_price"] if side == "OVER" else pre["best_under_price"] if side == "UNDER" else None
-    else:
-        closing_line = float(sched_row["total_line"]) if pd.notna(sched_row.get("total_line")) else None
-        closing_source = "nflverse_closing"
-        closing_price = sched_row.get("over_odds") if side == "OVER" else sched_row.get("under_odds") if side == "UNDER" else None
-        closing_price = None if closing_price is None or pd.isna(closing_price) else float(closing_price)
-    op = opener_summary(gid, summary=odds_summary) if odds_summary is not None else None
-    result = settle(side, float(line_taken), actual)
-    units = float(game.get("recommended_units") or 0.0)
-    return {"game_id": gid, "season": game["season"], "week": game["week"], "away_team": game["away_team"], "home_team": game["home_team"],
-            "snapshot_file": snapshot_file, "prediction_ts": snapshot["generated_at"], "model_version": snapshot.get("model_version"),
-            "projected_total": game.get("projected_total"), "bet_side": side, "line_taken": line_taken, "price_taken": price_taken,
-            "line_source": game.get("market_source"), "closing_line": closing_line, "closing_price": closing_price,
-            "closing_source": closing_source, "opening_line": (float(op["market_median"]) if op is not None else None),
-            "actual_total": actual, "result": result, "clv_points": clv_points(side, float(line_taken), closing_line),
-            "clv_price_prob": clv_price(price_taken, closing_price), "units_risked": units,
-            "units_won_lost": pnl(result, price_taken, units), "recorded_at": datetime.now(timezone.utc).isoformat()}
-
-
-def _already(path: Path) -> set[tuple[str, str]]:
+def _already(path: Path) -> set[tuple[str, str, str]]:
     if not path.exists():
         return set()
-    df = pd.read_csv(path)
-    return set(zip(df.snapshot_file.astype(str), df.game_id.astype(str)))
+    df = pd.read_csv(path, dtype=str)
+    return set(zip(df.snapshot_file, df.game_id, df.variant))
 
 
-def record_results(schedules: pd.DataFrame, pred_dir: Path = PRED_DIR, ledger: Path = LEDGER) -> int:
-    """Append settled rows for every totals snapshot whose games have finished."""
+def _pred_snapshots(pred_dir: Path):
+    for p in sorted(pred_dir.glob("totals_*.json")):
+        if p.name == "totals_index.json":
+            continue
+        yield p, json.loads(p.read_text())
+
+
+def build_rows(snap: dict, snap_file: str, game: dict, actual: float, ev: pd.DataFrame, first_line: dict,
+               now: str) -> list[dict]:
+    side = game.get("lean") if game.get("lean") in ("OVER", "UNDER") else "PASS"
+    src = game.get("market_source") or ""
+    base = {"game_id": game["game_id"], "season": game["season"], "week": game["week"], "away_team": game["away_team"],
+            "home_team": game["home_team"], "snapshot_file": snap_file, "prediction_ts": snap["generated_at"],
+            "model_version": snap.get("model_version"), "side": side,
+            "first_observed_line": first_line.get(game["game_id"]), "projected_total": game.get("projected_total"),
+            "model_edge": game.get("edge"), "edge_bucket": edge_bucket(game.get("edge")),
+            "raw_model_probability": game.get("raw_model_probability", game.get("model_over_prob")),
+            "calibrated_probability": game.get("calibrated_probability"), "actual_total": actual,
+            "units_risked": 0.0, "recorded_at": now, "schema_version": SCHEMA}
+    if side == "PASS" or not src:
+        return [{**base, "variant": "none", "result": "none"}]
+    if not src.startswith("odds_snapshot:"):
+        lt = game.get("market_total")
+        price = game.get("over_price") if side == "OVER" else game.get("under_price")
+        return [{**base, "variant": "nflverse_line", "line_taken": lt, "price_taken": price,
+                 "result": settle(side, lt, actual)}]
+    sid = src.split(":", 1)[1]
+    out = []
+    for variant in LEAN_VARIANTS:
+        m = ev[(ev.action_snapshot_id == sid) & (ev.game_id == game["game_id"]) & (ev.side == side) & (ev.variant == variant)]
+        if m.empty:  # S was itself the last pregame snapshot, or no NY book quoted at S: nothing to compare
+            out.append({**base, "variant": variant, "action_snapshot_id": sid, "result": "none"})
+            continue
+        e = m.iloc[0]
+        out.append({**base, "variant": variant, "action_snapshot_id": sid, "action_ts": e.action_ts,
+                    "minutes_to_kickoff_at_action": e.action_minutes_to_kickoff, "line_taken": e.line_taken,
+                    "price_taken": e.price_taken, "book_taken": e.book_taken, "ref_snapshot_id": e.ref_snapshot_id,
+                    "ref_ts": e.ref_ts, "ref_minutes_to_kickoff": e.ref_minutes_to_kickoff,
+                    "ref_close_quality": e.ref_close_quality, "ref_canonical_line": e.ref_canonical_line,
+                    "ref_median_line": e.ref_median_line, "line_clv": e.line_clv, "line_clv_vs_median": e.line_clv_vs_median,
+                    "price_clv_same_book": e.price_clv_same_book,
+                    "price_clv_same_line_consensus": e.price_clv_same_line_consensus,
+                    "fair_ev_vs_ref": e.fair_ev_vs_ref, "result": settle(side, float(e.line_taken), actual)})
+    return out
+
+
+def record_results(schedules: pd.DataFrame, pred_dir: Path = PRED_DIR, ledger: Path = LEDGER,
+                   odds_dir: Path = ODDS_DIR) -> int:
+    """Append settled rows for every totals prediction snapshot whose games are final."""
+    schedules = schedules[schedules.season >= FORWARD_SEASON_MIN]   # Phase 4 is 2026+ only (holdout sealed)
     by_id = schedules.set_index("game_id")
     done = _already(ledger)
-    odds_summary = load_game_summary()
-    if odds_summary.empty:
-        odds_summary = None
+    quotes = apply_game_kickoff(quotes_from_raw(odds_dir, schedules))
+    ev = build_clv_events(quotes)
+    ls = build_line_shopping(quotes) if not quotes.empty else pd.DataFrame()
+    mv = build_movement(ls, quotes) if not ls.empty else pd.DataFrame()
+    first_line = dict(zip(mv.game_id, mv.first_observed_canonical)) if not mv.empty else {}
+    now = datetime.now(timezone.utc).isoformat()
     new = []
-    for snap_path in sorted(pred_dir.glob("totals_*.json")):
-        if snap_path.name == "totals_index.json":
-            continue
-        snap = json.loads(snap_path.read_text())
+    for path, snap in _pred_snapshots(pred_dir):
         for g in snap["games"]:
-            key = (snap_path.name, g["game_id"])
-            if key in done or g["game_id"] not in by_id.index:
+            gid = g["game_id"]
+            if gid not in by_id.index:
                 continue
-            row = build_row(snap, snap_path.name, g, by_id.loc[g["game_id"]], odds_summary)
-            if row:
-                new.append(row); done.add(key)
+            row = by_id.loc[gid]
+            if pd.isna(row["home_score"]) or pd.isna(row["away_score"]):
+                continue
+            actual = float(row["home_score"] + row["away_score"])
+            for r in build_rows(snap, path.name, g, actual, ev, first_line, now):
+                key = (path.name, gid, r["variant"])
+                if key in done:
+                    continue
+                new.append(r)
+                done.add(key)
     if not new:
         logger.info("No new completed games to record.")
         return 0
-    header = not ledger.exists()
-    with open(ledger, "a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS)
-        if header:
-            w.writeheader()
-        w.writerows(new)
+    append_rows_atomic(ledger, new, FIELDS)
     logger.info("Appended %d rows to %s", len(new), ledger)
     return len(new)
 
 
 def summarize(ledger: Path = LEDGER) -> dict:
     if not ledger.exists():
-        return {"rows": 0}
+        return {"rows": 0, "schema_version": SCHEMA}
     df = pd.read_csv(ledger)
-    bet = df[df.bet_side.isin(["OVER", "UNDER"])]
-    dec = bet[bet.result.isin(["win", "loss"])]
-    return {"rows": int(len(df)), "leans": int(len(bet)), "wins": int((dec.result == "win").sum()), "losses": int((dec.result == "loss").sum()),
-            "pushes": int((bet.result == "push").sum()), "win_pct": (float((dec.result == "win").mean()) if len(dec) else None),
-            "mean_clv_points": (float(bet.clv_points.mean()) if bet.clv_points.notna().any() else None),
-            "units_risked": float(bet.units_risked.sum()), "units_won_lost": float(bet.units_won_lost.sum())}
+    leans = df[df.side.isin(["OVER", "UNDER"])]
+    out = {"rows": int(len(df)), "schema_version": SCHEMA, "units_risked": 0.0}
+    for v, d in leans.groupby("variant"):
+        dec = d[d.result.isin(["win", "loss"])]
+        c = d.line_clv.dropna()
+        out[v] = {"leans": int(len(d)), "wins": int((dec.result == "win").sum()), "losses": int((dec.result == "loss").sum()),
+                  "mean_line_clv": round(float(c.mean()), 3) if len(c) else None,
+                  "median_line_clv": float(c.median()) if len(c) else None}
+    return out
