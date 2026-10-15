@@ -22,6 +22,12 @@ the script changes into the repo root so relative data/ paths resolve.
       Print a ledger summary.
   python run.py test [--leakage-only]
       Run the test suite.
+  python run.py data-style [--first-season 1999] [--last-season 2022]
+      Phase 3A: extended play-by-play cache (pace, PROE, drives, explosives). Defaults stop at 2022
+      so the 2023-2025 holdout is never downloaded for research.
+  python run.py phase3a [--out data/processed/phase3a] [--frozen DIR]
+      Phase 3A: build every candidate beside ridge8_v1 on 2015-2022, then evaluate against the
+      frozen Phase 2A predictions in DIR (default: the in-repo baseline re-run).
 """
 from __future__ import annotations
 
@@ -106,6 +112,29 @@ def cmd_test(a):
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", target, "-q"]))
 
 
+def cmd_data_style(a):
+    from src.nfl.data.ingest_style import fetch_style_pbp
+    df = fetch_style_pbp(a.first_season, a.last_season, force=a.force)
+    print(json.dumps({"style_rows": int(len(df)), "seasons": [a.first_season, a.last_season]}))
+
+
+def cmd_phase3a(a):
+    from src.nfl.backtest.phase3a_eval import evaluate_all
+    from src.nfl.backtest.phase3a_harness import CANDIDATES, run_candidates
+    out = Path(a.out)
+    run_candidates(out / "predictions")
+    frozen = Path(a.frozen) if a.frozen else Path("data/processed/baseline")
+    res = evaluate_all(out / "predictions", frozen / "baseline_predictions_dev_2015_2022.csv", out / "analysis",
+                       list(CANDIDATES), ref_rep_csv=frozen / "baseline_predictions_replication_2010_2014.csv")
+    rows = []
+    for cid, r in res.items():
+        m = r["metrics"]
+        rows.append({"model": cid, "brier": round(m["brier_over"], 4), "ece": round(m["ece"], 4), "slope": round(m["slope"], 4),
+                     "slope_p": round(m["slope_p"], 3), "win": round(m["win_pct"], 4),
+                     "advance": r.get("keep_rule", {}).get("advance", "-")})
+    print(json.dumps(rows, indent=1))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -117,6 +146,9 @@ def main():
     s = sub.add_parser("predict"); s.add_argument("--season", type=int); s.add_argument("--week", type=int); s.set_defaults(fn=cmd_predict)
     s = sub.add_parser("record-results"); s.set_defaults(fn=cmd_record_results)
     s = sub.add_parser("ledger"); s.set_defaults(fn=cmd_ledger)
+    s = sub.add_parser("data-style"); s.add_argument("--first-season", type=int, default=1999); s.add_argument("--last-season", type=int, default=2022)
+    s.add_argument("--force", action="store_true"); s.set_defaults(fn=cmd_data_style)
+    s = sub.add_parser("phase3a"); s.add_argument("--out", default="data/processed/phase3a"); s.add_argument("--frozen"); s.set_defaults(fn=cmd_phase3a)
     s = sub.add_parser("test"); s.add_argument("--leakage-only", action="store_true"); s.set_defaults(fn=cmd_test)
     a = p.parse_args(); a.fn(a)
 

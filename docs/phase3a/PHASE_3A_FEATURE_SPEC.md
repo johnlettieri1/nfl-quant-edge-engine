@@ -88,7 +88,7 @@ Why these values (football logic, not fitted):
 
 | Metric | Definition | Reliable from |
 |---|---|---|
-| `spp` | Neutral seconds per play: for consecutive P plays by the same offense in the same `fixed_drive`, the game-clock gap `gsr(prev) - gsr(this)` where the later play is in N. Gaps outside (0, 50] seconds are dropped (stoppages, reviews, quarter edges). Needs >= 5 gaps, else missing. Lower = faster. | 1999 |
+| `spp` | (reliable from 2001, see A2) Neutral seconds per play: for consecutive P plays by the same offense in the same `fixed_drive`, the game-clock gap `gsr(prev) - gsr(this)` where the later play is in N. Gaps outside (0, 50] seconds are dropped (stoppages, reviews, quarter edges). Needs >= 5 gaps, else missing. Lower = faster. | **2001** |
 | `off_plays` | Count of P plays plus kneels and spikes (`play == 1`, pass or rush), offense | 1999 |
 | `def_plays` | Same count, faced by the defense | 1999 |
 | `nohuddle` | Mean `no_huddle` over P | **2006** (0.0% 1999-2001, under 2% 2002-2005: not reliable; treated as missing before 2006) |
@@ -171,6 +171,7 @@ features with the same standardization.
 |---|---|---|
 | `ridge8_v1` | 8 baseline | Frozen reference (Phase 2A numbers, not re-fit) |
 | `p3a_c0_ridge8_std` | 8 baseline, standardized | Control for the fitting change |
+| `p3a_c0b_ridge8_std_teamfix` | 8 baseline on franchise-normalized codes, standardized | Control for the team-code fix (amendment A1); reference for incremental value |
 | `p3a_c1_form` | 8 + Group A (8) | Ablation |
 | `p3a_c2_pace` | 8 + Group B (9) | Ablation |
 | `p3a_c3_xpl` | 8 + Group C (4) | Ablation |
@@ -223,4 +224,21 @@ Log loss: on P(over) vs the Over outcome, pushes excluded, probabilities clipped
 
 ## Amendments after freeze
 
-(none)
+All amendments below were made during implementation, **before any candidate was evaluated
+against outcomes**, and are driven by data defects found in coverage checks, not by results.
+
+**A1. Franchise code normalization, and a second control (`p3a_c0b_ridge8_std_teamfix`).**
+nflverse play-by-play labels every season with the current franchise code (LA, LAC, LV), while
+schedules use the code of the day (STL through 2015, SD through 2016, OAK through 2019). The
+existing trailing-EPA feature joins the two by code, so in ridge8_v1 the Rams 1999-2015, Chargers
+1999-2016 and Raiders 1999-2019 never accumulate EPA history (their side of the EPA matchup stays
+at the 0.0 default), and the flat 16-game scoring window restarts at each relocation. Phase 3A
+normalizes both sides to the current franchise code. To keep the comparison honest, a second
+control runs the 8 baseline features recomputed on normalized team codes (standardized), and every
+Phase 3A candidate is built on that corrected baseline. Incremental value of each group is measured
+against `p3a_c0b_ridge8_std_teamfix`. ridge8_v1 itself is not changed.
+
+**A2. Neutral seconds per play reliable from 2001.** In 1999 nflverse game-clock stamps repeat
+for every play in a drive (69% zero gaps); in 2000, 13% of games are partly affected (10% zero gaps).
+From 2001 on, zero gaps are 2% or less. `spp` is treated as missing before 2001 (estimate stays at
+the prior), the same rule already used for no-huddle and PROE before 2006.

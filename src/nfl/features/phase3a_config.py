@@ -24,7 +24,8 @@ SPP_GAP_MAX_INCLUSIVE = 50.0
 SPP_MIN_GAPS = 5
 
 # Reliability (section 3)
-RELIABLE_FROM = {"nohuddle": 2006, "proe": 2006, "def_proe_faced": 2006}
+# spp from 2001: amendment A2 (1999 clock stamped per drive, 2000 partially)
+RELIABLE_FROM = {"nohuddle": 2006, "proe": 2006, "def_proe_faced": 2006, "spp": 2001}
 
 # Explosives (section 3)
 EXPLOSIVE_PASS_YARDS = 20
