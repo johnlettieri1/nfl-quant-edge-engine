@@ -15,6 +15,10 @@ from sklearn.linear_model import Ridge
 
 from src.nfl.features.rolling_scoring import add_trailing_scoring_features
 
+# Phase 2B: version tag recorded in every snapshot and ledger row. Bump when the
+# feature set, windows, regularization, or probability mapping change.
+MODEL_VERSION = "ridge8_v1"
+
 FEATURE_COLS = [
     "home_off_trailing", "home_def_trailing", "away_off_trailing", "away_def_trailing",
     "home_epa_matchup", "away_epa_matchup", "is_dome", "qb_epa_sum",

@@ -10,7 +10,7 @@ Two-stage, both leak-free:
      like features/rolling_scoring.py: the trailing value attached to a
      game is computed only from that team's games strictly before it.
 
-Source: nflverse play-by-play via nfl_data_py.import_pbp_data. `play == 1`
+Source: nflverse play-by-play via nflreadpy.load_pbp (Phase 2B; was nfl_data_py). `play == 1`
 is nflverse's own flag for "this row counts as a real play" (excludes
 timeouts, penalties-only, spikes counted separately, etc.) -- filtering on
 it (not just play_type) is what nflverse's own EPA leaderboards do.

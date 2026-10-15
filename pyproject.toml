@@ -3,23 +3,19 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nfl-predict"
-version = "0.1.0"
-description = "Honestly-backtested NFL moneyline/spread/total prediction system"
-requires-python = ">=3.11,<3.12"
+name = "nfl-quant-edge-engine"
+version = "0.2.0"
+description = "NFL totals (Over/Under) research engine: nflreadpy data, leak-free walk-forward backtests, per-book odds snapshots, CLV ledger"
+requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
-    "nfl_data_py==0.3.3",
-    "pandas>=1.5,<2.0",
-    "numpy<2.0",
-    "scikit-learn>=1.3",
-    "xgboost>=2.0",
-    "lightgbm>=4.0",
-    "scipy>=1.10",
-    "statsmodels>=0.14",
-    "matplotlib>=3.7",
-    "pyarrow>=14.0",
-    "fastparquet>=2023.10.0",
+    "nflreadpy>=0.1.5",
+    "polars>=1.16",
+    "pandas>=2.2",
+    "numpy>=2.0",
+    "scikit-learn>=1.5",
+    "scipy>=1.13",
+    "pyarrow>=17.0",
     "requests>=2.31",
     "pyyaml>=6.0",
     "pydantic>=2.5",
@@ -27,14 +23,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.4",
-    "hypothesis>=6.90",
-]
+dev = ["pytest>=8.0", "hypothesis>=6.90"]
+# Moneyline/spread/props research code and the rejected GBM comparison rows. Not
+# needed for the totals pipeline; install only to run the legacy backtests/site.
+research = ["xgboost>=2.0", "lightgbm>=4.0", "matplotlib>=3.7", "statsmodels>=0.14"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
