@@ -1,0 +1,548 @@
+{
+  "generated_at": "2026-09-15T02:38:05.202929+00:00",
+  "season": 2026,
+  "week": 1,
+  "is_real_data": true,
+  "disclaimer": "Research/analytics project. Not betting advice. Predictions are immutable once generated; see docs for realistic accuracy ceilings vs the closing line.",
+  "games": [
+    {
+      "game_id": "2026_01_DEN_KC",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-14",
+      "home_team": "KC",
+      "away_team": "DEN",
+      "moneyline": {
+        "model_home_win_prob": 0.4385,
+        "market_home_win_prob": 0.9386,
+        "ensemble_home_win_prob": 0.9213,
+        "edge_vs_market": -0.0172,
+        "pick": {
+          "side": "KC",
+          "probability": 0.9213
+        }
+      },
+      "spread": {
+        "projected_margin_home": -1.27,
+        "market_spread_line": 14.5,
+        "model_home_cover_prob": 0.12,
+        "market_home_cover_prob": 0.4933,
+        "ensemble_home_cover_prob": 0.414,
+        "edge_vs_market": -0.0793,
+        "pick": {
+          "side": "DEN +14.5",
+          "probability": 0.586
+        }
+      },
+      "total": {
+        "projected_total": 42.44,
+        "market_total_line": 46.5,
+        "model_over_prob": 0.3825,
+        "market_over_prob": 0.5158,
+        "ensemble_over_prob": 0.4549,
+        "edge_vs_market": -0.0609,
+        "pick": {
+          "side": "UNDER",
+          "line": 46.5,
+          "probability": 0.5451
+        }
+      },
+      "data_quality_flags": [],
+      "live_odds_used": true
+    }
+  ],
+  "parlay": null,
+  "live_odds_meta": {
+    "requests_remaining": "4080",
+    "requests_used": "15920",
+    "fetched_at": "2026-09-15T02:36:54.513492+00:00"
+  },
+  "n_games_with_live_odds": 1,
+  "player_props": [
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0039732",
+      "player_name": "Bo Nix",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_pass_yds",
+      "stat": "passing_yards",
+      "line": 199.0,
+      "n_books": 6,
+      "model_projection": 251.0,
+      "own_trailing_avg": 272.9,
+      "model_over_prob": 0.7285,
+      "market_over_prob": 0.5005,
+      "edge_vs_market": 0.228,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.7285
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0033873",
+      "player_name": "Patrick Mahomes",
+      "team": "KC",
+      "opponent": "DEN",
+      "market": "player_pass_yds",
+      "stat": "passing_yards",
+      "line": 154.5,
+      "n_books": 7,
+      "model_projection": 247.6,
+      "own_trailing_avg": 268.9,
+      "model_over_prob": 0.8618,
+      "market_over_prob": 0.4944,
+      "edge_vs_market": 0.3674,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.8618
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0039732",
+      "player_name": "Bo Nix",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_pass_tds",
+      "stat": "passing_tds",
+      "line": 1.5,
+      "n_books": 5,
+      "model_projection": 1.2,
+      "own_trailing_avg": 1.2,
+      "model_over_prob": 0.4035,
+      "market_over_prob": 0.4952,
+      "edge_vs_market": -0.0917,
+      "pick": {
+        "side": "UNDER",
+        "probability": 0.5965
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0033873",
+      "player_name": "Patrick Mahomes",
+      "team": "KC",
+      "opponent": "DEN",
+      "market": "player_pass_tds",
+      "stat": "passing_tds",
+      "line": 1.5,
+      "n_books": 3,
+      "model_projection": 1.3,
+      "own_trailing_avg": 1.4,
+      "model_over_prob": 0.445,
+      "market_over_prob": 0.1976,
+      "edge_vs_market": 0.2474,
+      "pick": {
+        "side": "UNDER",
+        "probability": 0.555
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0036158",
+      "player_name": "J.K. Dobbins",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_rush_yds",
+      "stat": "rushing_yards",
+      "line": 38.0,
+      "n_books": 4,
+      "model_projection": 68.8,
+      "own_trailing_avg": 79.1,
+      "model_over_prob": 0.7886,
+      "market_over_prob": 0.4995,
+      "edge_vs_market": 0.289,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.7886
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0040730",
+      "player_name": "RJ Harvey",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_rush_yds",
+      "stat": "rushing_yards",
+      "line": 15.5,
+      "n_books": 5,
+      "model_projection": 44.1,
+      "own_trailing_avg": 44.1,
+      "model_over_prob": 0.7719,
+      "market_over_prob": 0.4573,
+      "edge_vs_market": 0.3146,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.7719
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0030506",
+      "player_name": "Travis Kelce",
+      "team": "KC",
+      "opponent": "DEN",
+      "market": "player_reception_yds",
+      "stat": "receiving_yards",
+      "line": 65.5,
+      "n_books": 4,
+      "model_projection": 38.0,
+      "own_trailing_avg": 38.9,
+      "model_over_prob": 0.205,
+      "market_over_prob": 0.3434,
+      "edge_vs_market": -0.1385,
+      "pick": {
+        "side": "UNDER",
+        "probability": 0.795
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0040134",
+      "player_name": "Pat Bryant",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_reception_yds",
+      "stat": "receiving_yards",
+      "line": 51.5,
+      "n_books": 5,
+      "model_projection": 37.6,
+      "own_trailing_avg": 38.2,
+      "model_over_prob": 0.3385,
+      "market_over_prob": 0.5016,
+      "edge_vs_market": -0.1631,
+      "pick": {
+        "side": "UNDER",
+        "probability": 0.6615
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0033881",
+      "player_name": "Evan Engram",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_reception_yds",
+      "stat": "receiving_yards",
+      "line": 44.5,
+      "n_books": 5,
+      "model_projection": 30.1,
+      "own_trailing_avg": 28.4,
+      "model_over_prob": 0.3338,
+      "market_over_prob": 0.4913,
+      "edge_vs_market": -0.1575,
+      "pick": {
+        "side": "UNDER",
+        "probability": 0.6662
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0040730",
+      "player_name": "RJ Harvey",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_reception_yds",
+      "stat": "receiving_yards",
+      "line": 23.5,
+      "n_books": 4,
+      "model_projection": 30.3,
+      "own_trailing_avg": 28.6,
+      "model_over_prob": 0.581,
+      "market_over_prob": 0.4962,
+      "edge_vs_market": 0.0849,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.581
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0034348",
+      "player_name": "Courtland Sutton",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_reception_yds",
+      "stat": "receiving_yards",
+      "line": 18.5,
+      "n_books": 5,
+      "model_projection": 50.0,
+      "own_trailing_avg": 54.8,
+      "model_over_prob": 0.8271,
+      "market_over_prob": 0.496,
+      "edge_vs_market": 0.3311,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.8271
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0039067",
+      "player_name": "Rashee Rice",
+      "team": "KC",
+      "opponent": "DEN",
+      "market": "player_reception_yds",
+      "stat": "receiving_yards",
+      "line": 19.5,
+      "n_books": 5,
+      "model_projection": 62.4,
+      "own_trailing_avg": 71.4,
+      "model_over_prob": 0.9006,
+      "market_over_prob": 0.4146,
+      "edge_vs_market": 0.486,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.9006
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0039894",
+      "player_name": "Xavier Worthy",
+      "team": "KC",
+      "opponent": "DEN",
+      "market": "player_reception_yds",
+      "stat": "receiving_yards",
+      "line": 18.5,
+      "n_books": 2,
+      "model_projection": 36.8,
+      "own_trailing_avg": 37.4,
+      "model_over_prob": 0.7085,
+      "market_over_prob": 0.2459,
+      "edge_vs_market": 0.4626,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.7085
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0038976",
+      "player_name": "Marvin Mims Jr.",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_reception_yds",
+      "stat": "receiving_yards",
+      "line": 0.5,
+      "n_books": 1,
+      "model_projection": 31.7,
+      "own_trailing_avg": 30.4,
+      "model_over_prob": 0.8244,
+      "market_over_prob": 0.3887,
+      "edge_vs_market": 0.4357,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.8244
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0040134",
+      "player_name": "Pat Bryant",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_receptions",
+      "stat": "receptions",
+      "line": 5.0,
+      "n_books": 2,
+      "model_projection": 3.2,
+      "own_trailing_avg": 3.2,
+      "model_over_prob": 0.2081,
+      "market_over_prob": 0.5436,
+      "edge_vs_market": -0.3354,
+      "pick": {
+        "side": "UNDER",
+        "probability": 0.7919
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0040730",
+      "player_name": "RJ Harvey",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_receptions",
+      "stat": "receptions",
+      "line": 4.5,
+      "n_books": 2,
+      "model_projection": 3.4,
+      "own_trailing_avg": 3.5,
+      "model_over_prob": 0.3067,
+      "market_over_prob": 0.3768,
+      "edge_vs_market": -0.0701,
+      "pick": {
+        "side": "UNDER",
+        "probability": 0.6933
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0033881",
+      "player_name": "Evan Engram",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_receptions",
+      "stat": "receptions",
+      "line": 4.0,
+      "n_books": 2,
+      "model_projection": 2.7,
+      "own_trailing_avg": 2.6,
+      "model_over_prob": 0.2804,
+      "market_over_prob": 0.5346,
+      "edge_vs_market": -0.2541,
+      "pick": {
+        "side": "UNDER",
+        "probability": 0.7196
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0039894",
+      "player_name": "Xavier Worthy",
+      "team": "KC",
+      "opponent": "DEN",
+      "market": "player_receptions",
+      "stat": "receptions",
+      "line": 3.5,
+      "n_books": 2,
+      "model_projection": 2.7,
+      "own_trailing_avg": 2.6,
+      "model_over_prob": 0.3609,
+      "market_over_prob": 0.2538,
+      "edge_vs_market": 0.1071,
+      "pick": {
+        "side": "UNDER",
+        "probability": 0.6391
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0034348",
+      "player_name": "Courtland Sutton",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_receptions",
+      "stat": "receptions",
+      "line": 2.5,
+      "n_books": 2,
+      "model_projection": 4.1,
+      "own_trailing_avg": 4.5,
+      "model_over_prob": 0.7661,
+      "market_over_prob": 0.4301,
+      "edge_vs_market": 0.336,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.7661
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0039067",
+      "player_name": "Rashee Rice",
+      "team": "KC",
+      "opponent": "DEN",
+      "market": "player_receptions",
+      "stat": "receptions",
+      "line": 2.5,
+      "n_books": 2,
+      "model_projection": 5.8,
+      "own_trailing_avg": 6.6,
+      "model_over_prob": 0.9271,
+      "market_over_prob": 0.3912,
+      "edge_vs_market": 0.5359,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.9271
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0030506",
+      "player_name": "Travis Kelce",
+      "team": "KC",
+      "opponent": "DEN",
+      "market": "player_receptions",
+      "stat": "receptions",
+      "line": 2.5,
+      "n_books": 2,
+      "model_projection": 4.0,
+      "own_trailing_avg": 4.4,
+      "model_over_prob": 0.7538,
+      "market_over_prob": 0.3361,
+      "edge_vs_market": 0.4176,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.7538
+      },
+      "is_real_data": true
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "matchup": "DEN @ KC",
+      "player_id": "00-0038976",
+      "player_name": "Marvin Mims Jr.",
+      "team": "DEN",
+      "opponent": "KC",
+      "market": "player_receptions",
+      "stat": "receptions",
+      "line": 0.5,
+      "n_books": 1,
+      "model_projection": 3.3,
+      "own_trailing_avg": 3.4,
+      "model_over_prob": 0.891,
+      "market_over_prob": 0.4165,
+      "edge_vs_market": 0.4745,
+      "pick": {
+        "side": "OVER",
+        "probability": 0.891
+      },
+      "is_real_data": true
+    }
+  ],
+  "player_props_disclaimer": "This projection is a player's own trailing average ONLY -- it does not adjust for opponent defensive strength, unlike the market and unlike this system's own game-level models. Expect it to disagree with the market more, and less meaningfully, than the game-level markets do: a large edge here is more likely a model blind spot (e.g. a hot streak against weak defenses that the market has already discounted) than a genuine mispricing -- read a large edge as 'investigate the matchup yourself,' not 'the model found value.' No real historical player-prop lines exist anywhere (checked directly) so this cannot be backtested against real market lines the way moneyline/spread/total are; what IS backtested honestly: the trailing average beats a naive league-average baseline on MAE, and its assumed Normal distribution is reasonably (not perfectly) calibrated -- see data/processed/player_props_backtest_summary.json."
+}

@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-09-14T06:33:41.165682+00:00",
+  "season": 2026,
+  "week": 1,
+  "is_real_data": true,
+  "disclaimer": "Research/analytics project. Not betting advice. Predictions are immutable once generated; see docs for realistic accuracy ceilings vs the closing line.",
+  "games": [
+    {
+      "game_id": "2026_01_DEN_KC",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-14",
+      "home_team": "KC",
+      "away_team": "DEN",
+      "moneyline": {
+        "model_home_win_prob": 0.4385,
+        "market_home_win_prob": 0.5474,
+        "ensemble_home_win_prob": 0.5236,
+        "edge_vs_market": -0.0238,
+        "pick": {
+          "side": "KC",
+          "probability": 0.5236
+        }
+      },
+      "spread": {
+        "projected_margin_home": -1.27,
+        "market_spread_line": 2.0,
+        "model_home_cover_prob": 0.4038,
+        "market_home_cover_prob": 0.5068,
+        "ensemble_home_cover_prob": 0.4743,
+        "edge_vs_market": -0.0325,
+        "pick": {
+          "side": "DEN +2.0",
+          "probability": 0.5257
+        }
+      },
+      "total": {
+        "projected_total": 42.44,
+        "market_total_line": 43.5,
+        "model_over_prob": 0.4689,
+        "market_over_prob": 0.5064,
+        "ensemble_over_prob": 0.4831,
+        "edge_vs_market": -0.0233,
+        "pick": {
+          "side": "UNDER",
+          "line": 43.5,
+          "probability": 0.5169
+        }
+      },
+      "data_quality_flags": [],
+      "live_odds_used": true
+    }
+  ],
+  "parlay": null,
+  "live_odds_meta": {
+    "requests_remaining": "4740",
+    "requests_used": "15260",
+    "fetched_at": "2026-09-14T06:33:03.987435+00:00"
+  },
+  "n_games_with_live_odds": 1
+}

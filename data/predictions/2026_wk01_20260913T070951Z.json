@@ -1,0 +1,359 @@
+{
+  "generated_at": "2026-09-13T07:09:51.173121+00:00",
+  "season": 2026,
+  "week": 1,
+  "is_real_data": true,
+  "disclaimer": "Research/analytics project. Not betting advice. Predictions are immutable once generated; see docs for realistic accuracy ceilings vs the closing line.",
+  "games": [
+    {
+      "game_id": "2026_01_ARI_LAC",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "LAC",
+      "away_team": "ARI",
+      "moneyline": {
+        "model_home_win_prob": 0.7406,
+        "market_home_win_prob": 0.8043,
+        "ensemble_home_win_prob": 0.8035,
+        "edge_vs_market": -0.0008
+      },
+      "spread": {
+        "projected_margin_home": 7.66,
+        "market_spread_line": 9.5,
+        "model_home_cover_prob": 0.4458
+      },
+      "total": {
+        "projected_total": 44.66,
+        "market_total_line": 47.5,
+        "model_over_prob": 0.4179
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_ATL_PIT",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "PIT",
+      "away_team": "ATL",
+      "moneyline": {
+        "model_home_win_prob": 0.6004,
+        "market_home_win_prob": 0.6958,
+        "ensemble_home_win_prob": 0.69,
+        "edge_vs_market": -0.0057
+      },
+      "spread": {
+        "projected_margin_home": 3.6,
+        "market_spread_line": 6.0,
+        "model_home_cover_prob": 0.4296
+      },
+      "total": {
+        "projected_total": 44.1,
+        "market_total_line": 41.5,
+        "model_over_prob": 0.5754
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_BAL_IND",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "IND",
+      "away_team": "BAL",
+      "moneyline": {
+        "model_home_win_prob": 0.4591,
+        "market_home_win_prob": 0.3908,
+        "ensemble_home_win_prob": 0.3766,
+        "edge_vs_market": -0.0142
+      },
+      "spread": {
+        "projected_margin_home": -0.9,
+        "market_spread_line": -3.5,
+        "model_home_cover_prob": 0.5764
+      },
+      "total": {
+        "projected_total": 49.04,
+        "market_total_line": 47.5,
+        "model_over_prob": 0.5447
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_BUF_HOU",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "HOU",
+      "away_team": "BUF",
+      "moneyline": {
+        "model_home_win_prob": 0.574,
+        "market_home_win_prob": 0.4957,
+        "ensemble_home_win_prob": 0.4847,
+        "edge_vs_market": -0.011
+      },
+      "spread": {
+        "projected_margin_home": 2.3,
+        "market_spread_line": -1.5,
+        "model_home_cover_prob": 0.6106
+      },
+      "total": {
+        "projected_total": 47.1,
+        "market_total_line": 44.5,
+        "model_over_prob": 0.5753
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_CHI_CAR",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "CAR",
+      "away_team": "CHI",
+      "moneyline": {
+        "model_home_win_prob": 0.4289,
+        "market_home_win_prob": 0.4004,
+        "ensemble_home_win_prob": 0.3857,
+        "edge_vs_market": -0.0147
+      },
+      "spread": {
+        "projected_margin_home": -1.83,
+        "market_spread_line": -3.0,
+        "model_home_cover_prob": 0.5346
+      },
+      "total": {
+        "projected_total": 45.08,
+        "market_total_line": 47.5,
+        "model_over_prob": 0.4298
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_CLE_JAX",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "JAX",
+      "away_team": "CLE",
+      "moneyline": {
+        "model_home_win_prob": 0.7497,
+        "market_home_win_prob": 0.7867,
+        "ensemble_home_win_prob": 0.7857,
+        "edge_vs_market": -0.001
+      },
+      "spread": {
+        "projected_margin_home": 8.19,
+        "market_spread_line": 8.5,
+        "model_home_cover_prob": 0.4908
+      },
+      "total": {
+        "projected_total": 44.11,
+        "market_total_line": 39.5,
+        "model_over_prob": 0.6318
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_DAL_NYG",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "NYG",
+      "away_team": "DAL",
+      "moneyline": {
+        "model_home_win_prob": 0.5203,
+        "market_home_win_prob": 0.4066,
+        "ensemble_home_win_prob": 0.3936,
+        "edge_vs_market": -0.0131
+      },
+      "spread": {
+        "projected_margin_home": 0.95,
+        "market_spread_line": -3.0,
+        "model_home_cover_prob": 0.6149
+      },
+      "total": {
+        "projected_total": 52.15,
+        "market_total_line": 48.5,
+        "model_over_prob": 0.6051
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_GB_MIN",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "MIN",
+      "away_team": "GB",
+      "moneyline": {
+        "model_home_win_prob": 0.5947,
+        "market_home_win_prob": 0.5427,
+        "ensemble_home_win_prob": 0.533,
+        "edge_vs_market": -0.0097
+      },
+      "spread": {
+        "projected_margin_home": 3.41,
+        "market_spread_line": 2.5,
+        "model_home_cover_prob": 0.527
+      },
+      "total": {
+        "projected_total": 42.52,
+        "market_total_line": 46.5,
+        "model_over_prob": 0.3858
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_MIA_LV",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "LV",
+      "away_team": "MIA",
+      "moneyline": {
+        "model_home_win_prob": 0.4117,
+        "market_home_win_prob": 0.6038,
+        "ensemble_home_win_prob": 0.5922,
+        "edge_vs_market": -0.0116
+      },
+      "spread": {
+        "projected_margin_home": -2.15,
+        "market_spread_line": 3.0,
+        "model_home_cover_prob": 0.3516
+      },
+      "total": {
+        "projected_total": 41.49,
+        "market_total_line": 40.5,
+        "model_over_prob": 0.5289
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_NO_DET",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "DET",
+      "away_team": "NO",
+      "moneyline": {
+        "model_home_win_prob": 0.7201,
+        "market_home_win_prob": 0.7335,
+        "ensemble_home_win_prob": 0.7308,
+        "edge_vs_market": -0.0027
+      },
+      "spread": {
+        "projected_margin_home": 7.04,
+        "market_spread_line": 7.0,
+        "model_home_cover_prob": 0.5013
+      },
+      "total": {
+        "projected_total": 47.19,
+        "market_total_line": 49.5,
+        "model_over_prob": 0.4331
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_NYJ_TEN",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "TEN",
+      "away_team": "NYJ",
+      "moneyline": {
+        "model_home_win_prob": 0.5739,
+        "market_home_win_prob": 0.5217,
+        "ensemble_home_win_prob": 0.5112,
+        "edge_vs_market": -0.0105
+      },
+      "spread": {
+        "projected_margin_home": 2.13,
+        "market_spread_line": 1.5,
+        "model_home_cover_prob": 0.5186
+      },
+      "total": {
+        "projected_total": 43.53,
+        "market_total_line": 38.5,
+        "model_over_prob": 0.6434
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_TB_CIN",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "CIN",
+      "away_team": "TB",
+      "moneyline": {
+        "model_home_win_prob": 0.574,
+        "market_home_win_prob": 0.6369,
+        "ensemble_home_win_prob": 0.6291,
+        "edge_vs_market": -0.0078
+      },
+      "spread": {
+        "projected_margin_home": 2.31,
+        "market_spread_line": 3.5,
+        "model_home_cover_prob": 0.465
+      },
+      "total": {
+        "projected_total": 49.24,
+        "market_total_line": 50.5,
+        "model_over_prob": 0.4634
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_WAS_PHI",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "PHI",
+      "away_team": "WAS",
+      "moneyline": {
+        "model_home_win_prob": 0.6837,
+        "market_home_win_prob": 0.6806,
+        "ensemble_home_win_prob": 0.6758,
+        "edge_vs_market": -0.0047
+      },
+      "spread": {
+        "projected_margin_home": 6.09,
+        "market_spread_line": 6.0,
+        "model_home_cover_prob": 0.5027
+      },
+      "total": {
+        "projected_total": 44.73,
+        "market_total_line": 44.5,
+        "model_over_prob": 0.5067
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-14",
+      "home_team": "KC",
+      "away_team": "DEN",
+      "moneyline": {
+        "model_home_win_prob": 0.4117,
+        "market_home_win_prob": 0.5514,
+        "ensemble_home_win_prob": 0.5386,
+        "edge_vs_market": -0.0129
+      },
+      "spread": {
+        "projected_margin_home": -2.47,
+        "market_spread_line": 2.5,
+        "model_home_cover_prob": 0.3564
+      },
+      "total": {
+        "projected_total": 41.9,
+        "market_total_line": 43.5,
+        "model_over_prob": 0.4536
+      },
+      "data_quality_flags": []
+    }
+  ]
+}

@@ -1,0 +1,625 @@
+{
+  "generated_at": "2026-09-13T17:47:27.934808+00:00",
+  "season": 2026,
+  "week": 1,
+  "is_real_data": true,
+  "disclaimer": "Research/analytics project. Not betting advice. Predictions are immutable once generated; see docs for realistic accuracy ceilings vs the closing line.",
+  "games": [
+    {
+      "game_id": "2026_01_ARI_LAC",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "LAC",
+      "away_team": "ARI",
+      "moneyline": {
+        "model_home_win_prob": 0.7627,
+        "market_home_win_prob": 0.8,
+        "ensemble_home_win_prob": 0.7994,
+        "edge_vs_market": -0.0006,
+        "pick": {
+          "side": "LAC",
+          "probability": 0.7994
+        }
+      },
+      "spread": {
+        "projected_margin_home": 7.97,
+        "market_spread_line": 9.5,
+        "model_home_cover_prob": 0.455,
+        "market_home_cover_prob": 0.5,
+        "ensemble_home_cover_prob": 0.4842,
+        "edge_vs_market": -0.0158,
+        "pick": {
+          "side": "ARI +9.5",
+          "probability": 0.5158
+        }
+      },
+      "total": {
+        "projected_total": 47.17,
+        "market_total_line": 47.5,
+        "model_over_prob": 0.4903,
+        "market_over_prob": 0.4892,
+        "ensemble_over_prob": 0.4914,
+        "edge_vs_market": 0.0023,
+        "pick": {
+          "side": "UNDER",
+          "line": 47.5,
+          "probability": 0.5086
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_ATL_PIT",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "PIT",
+      "away_team": "ATL",
+      "moneyline": {
+        "model_home_win_prob": 0.6127,
+        "market_home_win_prob": 0.718,
+        "ensemble_home_win_prob": 0.7131,
+        "edge_vs_market": -0.0049,
+        "pick": {
+          "side": "PIT",
+          "probability": 0.7131
+        }
+      },
+      "spread": {
+        "projected_margin_home": 3.32,
+        "market_spread_line": 6.5,
+        "model_home_cover_prob": 0.4067,
+        "market_home_cover_prob": 0.5043,
+        "ensemble_home_cover_prob": 0.4815,
+        "edge_vs_market": -0.0228,
+        "pick": {
+          "side": "ATL +6.5",
+          "probability": 0.5185
+        }
+      },
+      "total": {
+        "projected_total": 43.71,
+        "market_total_line": 40.5,
+        "model_over_prob": 0.5931,
+        "market_over_prob": 0.5043,
+        "ensemble_over_prob": 0.5168,
+        "edge_vs_market": 0.0124,
+        "pick": {
+          "side": "OVER",
+          "line": 40.5,
+          "probability": 0.5168
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_BAL_IND",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "IND",
+      "away_team": "BAL",
+      "moneyline": {
+        "model_home_win_prob": 0.4407,
+        "market_home_win_prob": 0.4066,
+        "ensemble_home_win_prob": 0.3924,
+        "edge_vs_market": -0.0142,
+        "pick": {
+          "side": "BAL",
+          "probability": 0.6076
+        }
+      },
+      "spread": {
+        "projected_margin_home": -1.42,
+        "market_spread_line": -3.0,
+        "model_home_cover_prob": 0.5465,
+        "market_home_cover_prob": 0.5043,
+        "ensemble_home_cover_prob": 0.4923,
+        "edge_vs_market": -0.0121,
+        "pick": {
+          "side": "BAL -3.0",
+          "probability": 0.5077
+        }
+      },
+      "total": {
+        "projected_total": 48.32,
+        "market_total_line": 48.5,
+        "model_over_prob": 0.4946,
+        "market_over_prob": 0.4826,
+        "ensemble_over_prob": 0.4925,
+        "edge_vs_market": 0.0098,
+        "pick": {
+          "side": "UNDER",
+          "line": 48.5,
+          "probability": 0.5075
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_BUF_HOU",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "HOU",
+      "away_team": "BUF",
+      "moneyline": {
+        "model_home_win_prob": 0.5565,
+        "market_home_win_prob": 0.4957,
+        "ensemble_home_win_prob": 0.4845,
+        "edge_vs_market": -0.0112,
+        "pick": {
+          "side": "BUF",
+          "probability": 0.5155
+        }
+      },
+      "spread": {
+        "projected_margin_home": 1.96,
+        "market_spread_line": -1.5,
+        "model_home_cover_prob": 0.6013,
+        "market_home_cover_prob": 0.5108,
+        "ensemble_home_cover_prob": 0.4981,
+        "edge_vs_market": -0.0127,
+        "pick": {
+          "side": "BUF -1.5",
+          "probability": 0.5019
+        }
+      },
+      "total": {
+        "projected_total": 47.25,
+        "market_total_line": 44.5,
+        "model_over_prob": 0.5797,
+        "market_over_prob": 0.5,
+        "ensemble_over_prob": 0.5134,
+        "edge_vs_market": 0.0134,
+        "pick": {
+          "side": "OVER",
+          "line": 44.5,
+          "probability": 0.5134
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_CHI_CAR",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "CAR",
+      "away_team": "CHI",
+      "moneyline": {
+        "model_home_win_prob": 0.4125,
+        "market_home_win_prob": 0.4004,
+        "ensemble_home_win_prob": 0.3856,
+        "edge_vs_market": -0.0147,
+        "pick": {
+          "side": "CHI",
+          "probability": 0.6144
+        }
+      },
+      "spread": {
+        "projected_margin_home": -2.1,
+        "market_spread_line": -3.0,
+        "model_home_cover_prob": 0.5265,
+        "market_home_cover_prob": 0.4957,
+        "ensemble_home_cover_prob": 0.4886,
+        "edge_vs_market": -0.007,
+        "pick": {
+          "side": "CHI -3.0",
+          "probability": 0.5114
+        }
+      },
+      "total": {
+        "projected_total": 44.29,
+        "market_total_line": 47.5,
+        "model_over_prob": 0.4072,
+        "market_over_prob": 0.4892,
+        "ensemble_over_prob": 0.4709,
+        "edge_vs_market": -0.0182,
+        "pick": {
+          "side": "UNDER",
+          "line": 47.5,
+          "probability": 0.5291
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_CLE_JAX",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "JAX",
+      "away_team": "CLE",
+      "moneyline": {
+        "model_home_win_prob": 0.7821,
+        "market_home_win_prob": 0.7914,
+        "ensemble_home_win_prob": 0.7909,
+        "edge_vs_market": -0.0005,
+        "pick": {
+          "side": "JAX",
+          "probability": 0.7909
+        }
+      },
+      "spread": {
+        "projected_margin_home": 9.28,
+        "market_spread_line": 8.5,
+        "model_home_cover_prob": 0.5229,
+        "market_home_cover_prob": 0.5108,
+        "ensemble_home_cover_prob": 0.492,
+        "edge_vs_market": -0.0188,
+        "pick": {
+          "side": "CLE +8.5",
+          "probability": 0.508
+        }
+      },
+      "total": {
+        "projected_total": 43.35,
+        "market_total_line": 40.5,
+        "model_over_prob": 0.5825,
+        "market_over_prob": 0.4826,
+        "ensemble_over_prob": 0.5141,
+        "edge_vs_market": 0.0314,
+        "pick": {
+          "side": "OVER",
+          "line": 40.5,
+          "probability": 0.5141
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_DAL_NYG",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "NYG",
+      "away_team": "DAL",
+      "moneyline": {
+        "model_home_win_prob": 0.5565,
+        "market_home_win_prob": 0.4004,
+        "ensemble_home_win_prob": 0.388,
+        "edge_vs_market": -0.0123,
+        "pick": {
+          "side": "DAL",
+          "probability": 0.612
+        }
+      },
+      "spread": {
+        "projected_margin_home": 1.46,
+        "market_spread_line": -3.0,
+        "model_home_cover_prob": 0.6294,
+        "market_home_cover_prob": 0.4957,
+        "ensemble_home_cover_prob": 0.4967,
+        "edge_vs_market": 0.0011,
+        "pick": {
+          "side": "DAL -3.0",
+          "probability": 0.5033
+        }
+      },
+      "total": {
+        "projected_total": 50.9,
+        "market_total_line": 47.5,
+        "model_over_prob": 0.5982,
+        "market_over_prob": 0.5174,
+        "ensemble_over_prob": 0.5181,
+        "edge_vs_market": 0.0007,
+        "pick": {
+          "side": "OVER",
+          "line": 47.5,
+          "probability": 0.5181
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_GB_MIN",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "MIN",
+      "away_team": "GB",
+      "moneyline": {
+        "model_home_win_prob": 0.6127,
+        "market_home_win_prob": 0.5427,
+        "ensemble_home_win_prob": 0.5334,
+        "edge_vs_market": -0.0093,
+        "pick": {
+          "side": "MIN",
+          "probability": 0.5334
+        }
+      },
+      "spread": {
+        "projected_margin_home": 3.23,
+        "market_spread_line": 1.5,
+        "model_home_cover_prob": 0.5509,
+        "market_home_cover_prob": 0.5174,
+        "ensemble_home_cover_prob": 0.4957,
+        "edge_vs_market": -0.0216,
+        "pick": {
+          "side": "GB +1.5",
+          "probability": 0.5043
+        }
+      },
+      "total": {
+        "projected_total": 45.48,
+        "market_total_line": 46.5,
+        "model_over_prob": 0.4701,
+        "market_over_prob": 0.4892,
+        "ensemble_over_prob": 0.4865,
+        "edge_vs_market": -0.0027,
+        "pick": {
+          "side": "UNDER",
+          "line": 46.5,
+          "probability": 0.5135
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_MIA_LV",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "LV",
+      "away_team": "MIA",
+      "moneyline": {
+        "model_home_win_prob": 0.3978,
+        "market_home_win_prob": 0.6038,
+        "ensemble_home_win_prob": 0.5922,
+        "edge_vs_market": -0.0116,
+        "pick": {
+          "side": "LV",
+          "probability": 0.5922
+        }
+      },
+      "spread": {
+        "projected_margin_home": -2.49,
+        "market_spread_line": 3.0,
+        "model_home_cover_prob": 0.342,
+        "market_home_cover_prob": 0.5,
+        "ensemble_home_cover_prob": 0.4752,
+        "edge_vs_market": -0.0248,
+        "pick": {
+          "side": "MIA +3.0",
+          "probability": 0.5248
+        }
+      },
+      "total": {
+        "projected_total": 43.73,
+        "market_total_line": 40.5,
+        "model_over_prob": 0.5936,
+        "market_over_prob": 0.5,
+        "ensemble_over_prob": 0.5169,
+        "edge_vs_market": 0.0169,
+        "pick": {
+          "side": "OVER",
+          "line": 40.5,
+          "probability": 0.5169
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_NO_DET",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "DET",
+      "away_team": "NO",
+      "moneyline": {
+        "model_home_win_prob": 0.6685,
+        "market_home_win_prob": 0.7335,
+        "ensemble_home_win_prob": 0.7299,
+        "edge_vs_market": -0.0036,
+        "pick": {
+          "side": "DET",
+          "probability": 0.7299
+        }
+      },
+      "spread": {
+        "projected_margin_home": 6.27,
+        "market_spread_line": 7.0,
+        "model_home_cover_prob": 0.4784,
+        "market_home_cover_prob": 0.5,
+        "ensemble_home_cover_prob": 0.486,
+        "edge_vs_market": -0.014,
+        "pick": {
+          "side": "NO +7.0",
+          "probability": 0.514
+        }
+      },
+      "total": {
+        "projected_total": 48.44,
+        "market_total_line": 49.5,
+        "model_over_prob": 0.469,
+        "market_over_prob": 0.5108,
+        "ensemble_over_prob": 0.4863,
+        "edge_vs_market": -0.0246,
+        "pick": {
+          "side": "UNDER",
+          "line": 49.5,
+          "probability": 0.5137
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_NYJ_TEN",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "TEN",
+      "away_team": "NYJ",
+      "moneyline": {
+        "model_home_win_prob": 0.6041,
+        "market_home_win_prob": 0.5174,
+        "ensemble_home_win_prob": 0.5074,
+        "edge_vs_market": -0.01,
+        "pick": {
+          "side": "TEN",
+          "probability": 0.5074
+        }
+      },
+      "spread": {
+        "projected_margin_home": 2.82,
+        "market_spread_line": 1.5,
+        "model_home_cover_prob": 0.5389,
+        "market_home_cover_prob": 0.4892,
+        "ensemble_home_cover_prob": 0.488,
+        "edge_vs_market": -0.0011,
+        "pick": {
+          "side": "NYJ +1.5",
+          "probability": 0.512
+        }
+      },
+      "total": {
+        "projected_total": 42.55,
+        "market_total_line": 39.5,
+        "model_over_prob": 0.5884,
+        "market_over_prob": 0.5,
+        "ensemble_over_prob": 0.5156,
+        "edge_vs_market": 0.0156,
+        "pick": {
+          "side": "OVER",
+          "line": 39.5,
+          "probability": 0.5156
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_TB_CIN",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "CIN",
+      "away_team": "TB",
+      "moneyline": {
+        "model_home_win_prob": 0.5675,
+        "market_home_win_prob": 0.6447,
+        "ensemble_home_win_prob": 0.6371,
+        "edge_vs_market": -0.0077,
+        "pick": {
+          "side": "CIN",
+          "probability": 0.6371
+        }
+      },
+      "spread": {
+        "projected_margin_home": 2.42,
+        "market_spread_line": 3.5,
+        "model_home_cover_prob": 0.4682,
+        "market_home_cover_prob": 0.5174,
+        "ensemble_home_cover_prob": 0.4894,
+        "edge_vs_market": -0.028,
+        "pick": {
+          "side": "TB +3.5",
+          "probability": 0.5106
+        }
+      },
+      "total": {
+        "projected_total": 48.12,
+        "market_total_line": 50.5,
+        "model_over_prob": 0.4307,
+        "market_over_prob": 0.4957,
+        "ensemble_over_prob": 0.4768,
+        "edge_vs_market": -0.0188,
+        "pick": {
+          "side": "UNDER",
+          "line": 50.5,
+          "probability": 0.5232
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_WAS_PHI",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "PHI",
+      "away_team": "WAS",
+      "moneyline": {
+        "model_home_win_prob": 0.7511,
+        "market_home_win_prob": 0.6958,
+        "ensemble_home_win_prob": 0.6926,
+        "edge_vs_market": -0.0032,
+        "pick": {
+          "side": "PHI",
+          "probability": 0.6926
+        }
+      },
+      "spread": {
+        "projected_margin_home": 7.22,
+        "market_spread_line": 6.0,
+        "model_home_cover_prob": 0.536,
+        "market_home_cover_prob": 0.5043,
+        "ensemble_home_cover_prob": 0.4914,
+        "edge_vs_market": -0.0129,
+        "pick": {
+          "side": "WAS +6.0",
+          "probability": 0.5086
+        }
+      },
+      "total": {
+        "projected_total": 44.73,
+        "market_total_line": 44.5,
+        "model_over_prob": 0.5066,
+        "market_over_prob": 0.4892,
+        "ensemble_over_prob": 0.4954,
+        "edge_vs_market": 0.0062,
+        "pick": {
+          "side": "UNDER",
+          "line": 44.5,
+          "probability": 0.5046
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-14",
+      "home_team": "KC",
+      "away_team": "DEN",
+      "moneyline": {
+        "model_home_win_prob": 0.4123,
+        "market_home_win_prob": 0.5514,
+        "ensemble_home_win_prob": 0.5388,
+        "edge_vs_market": -0.0126,
+        "pick": {
+          "side": "KC",
+          "probability": 0.5388
+        }
+      },
+      "spread": {
+        "projected_margin_home": -2.41,
+        "market_spread_line": 2.5,
+        "model_home_cover_prob": 0.3581,
+        "market_home_cover_prob": 0.5,
+        "ensemble_home_cover_prob": 0.4765,
+        "edge_vs_market": -0.0235,
+        "pick": {
+          "side": "DEN +2.5",
+          "probability": 0.5235
+        }
+      },
+      "total": {
+        "projected_total": 41.16,
+        "market_total_line": 43.5,
+        "model_over_prob": 0.4319,
+        "market_over_prob": 0.4957,
+        "ensemble_over_prob": 0.4771,
+        "edge_vs_market": -0.0186,
+        "pick": {
+          "side": "UNDER",
+          "line": 43.5,
+          "probability": 0.5229
+        }
+      },
+      "data_quality_flags": []
+    }
+  ]
+}

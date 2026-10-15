@@ -1,0 +1,124 @@
+{
+  "generated_at": "2026-09-14T02:35:29.483768+00:00",
+  "season": 2026,
+  "week": 1,
+  "is_real_data": true,
+  "disclaimer": "Research/analytics project. Not betting advice. Predictions are immutable once generated; see docs for realistic accuracy ceilings vs the closing line.",
+  "games": [
+    {
+      "game_id": "2026_01_DAL_NYG",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-13",
+      "home_team": "NYG",
+      "away_team": "DAL",
+      "moneyline": {
+        "model_home_win_prob": 0.5307,
+        "market_home_win_prob": 0.4004,
+        "ensemble_home_win_prob": 0.3967,
+        "edge_vs_market": -0.0036,
+        "pick": {
+          "side": "DAL",
+          "probability": 0.6033
+        }
+      },
+      "spread": {
+        "projected_margin_home": 0.97,
+        "market_spread_line": -3.0,
+        "model_home_cover_prob": 0.6163,
+        "market_home_cover_prob": 0.4957,
+        "ensemble_home_cover_prob": 0.5026,
+        "edge_vs_market": 0.007,
+        "pick": {
+          "side": "NYG +3.0",
+          "probability": 0.5026
+        }
+      },
+      "total": {
+        "projected_total": 50.83,
+        "market_total_line": 47.5,
+        "model_over_prob": 0.5966,
+        "market_over_prob": 0.5108,
+        "ensemble_over_prob": 0.5242,
+        "edge_vs_market": 0.0134,
+        "pick": {
+          "side": "OVER",
+          "line": 47.5,
+          "probability": 0.5242
+        }
+      },
+      "data_quality_flags": []
+    },
+    {
+      "game_id": "2026_01_DEN_KC",
+      "season": 2026,
+      "week": 1,
+      "gameday": "2026-09-14",
+      "home_team": "KC",
+      "away_team": "DEN",
+      "moneyline": {
+        "model_home_win_prob": 0.4383,
+        "market_home_win_prob": 0.5514,
+        "ensemble_home_win_prob": 0.5273,
+        "edge_vs_market": -0.0241,
+        "pick": {
+          "side": "KC",
+          "probability": 0.5273
+        }
+      },
+      "spread": {
+        "projected_margin_home": -1.27,
+        "market_spread_line": 2.5,
+        "model_home_cover_prob": 0.3894,
+        "market_home_cover_prob": 0.5,
+        "ensemble_home_cover_prob": 0.4706,
+        "edge_vs_market": -0.0294,
+        "pick": {
+          "side": "DEN +2.5",
+          "probability": 0.5294
+        }
+      },
+      "total": {
+        "projected_total": 42.44,
+        "market_total_line": 43.5,
+        "model_over_prob": 0.4689,
+        "market_over_prob": 0.4957,
+        "ensemble_over_prob": 0.483,
+        "edge_vs_market": -0.0126,
+        "pick": {
+          "side": "UNDER",
+          "line": 43.5,
+          "probability": 0.517
+        }
+      },
+      "data_quality_flags": []
+    }
+  ],
+  "parlay": {
+    "legs": [
+      {
+        "game_id": "2026_01_DAL_NYG",
+        "matchup": "DAL @ NYG",
+        "market": "ML",
+        "pick": "DAL",
+        "model_probability": 0.6033,
+        "market_probability": 0.5996,
+        "edge_vs_market": 0.0036
+      },
+      {
+        "game_id": "2026_01_DEN_KC",
+        "matchup": "DEN @ KC",
+        "market": "SPREAD",
+        "pick": "DEN +2.5",
+        "model_probability": 0.5294,
+        "market_probability": 0.5,
+        "edge_vs_market": 0.0294
+      }
+    ],
+    "n_legs": 2,
+    "combined_model_probability": 0.3194,
+    "combined_model_american_odds": 213,
+    "combined_market_probability": 0.2998,
+    "combined_market_american_odds": 234
+  }
+}
