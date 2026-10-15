@@ -1,0 +1,28 @@
+{
+  "calibration_version": "ridge8_v1_shrink_cal_v1",
+  "model_version": "ridge8_v1",
+  "method": "shrink_toward_0.5",
+  "formula": "calibrated_probability = 0.5 + shrink_factor * (raw_model_probability - 0.5)",
+  "shrink_factor": 0.2861,
+  "training_seasons": [
+    2001,
+    2022
+  ],
+  "training_rows": 5811,
+  "training_source": "ridge8_v1 walk-forward out-of-sample P(over) vs closing total; all game types; pushes excluded",
+  "calibration_target": "closing-total outcomes (actual total vs historical closing total)",
+  "historical_market_timing": "close",
+  "live_market_timing": "snapshot line at prediction time (opener, current or pregame)",
+  "timing_validation_status": "not yet prospectively validated for opener/current/pregame timing",
+  "objective": "minimize log loss, factor bounded to [0, 1]",
+  "holdout_policy": "no season after 2022 used to fit, adjust, validate or tune",
+  "in_sample_fit_check": {
+    "log_loss_raw": 0.69905,
+    "log_loss_calibrated": 0.69209,
+    "brier_raw": 0.25275,
+    "brier_calibrated": 0.24947
+  },
+  "reference": "docs/phase3b/PHASE_3B_REPORT.md sections 4 and 9 (walk-forward shrink, 2015-2022)",
+  "fitted_at": "2026-10-15T21:43:53.037431+00:00",
+  "schedules_sha256_16": "92b961ceee43e4b2"
+}
