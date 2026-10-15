@@ -1,8 +1,20 @@
 # NFL Totals Engine: Phase 3A Report (Form, Pace and Possessions)
 
-**Branch:** `phase-3a-form-pace` (4 commits on top of main e0df83d). **Not pushed, no PR.**
+**Branch:** `phase-3a-form-pace`, pushed to GitHub. 5 commits on top of main e0df83d:
+1. c5336c0 Freeze feature specification and config before evaluation
+2. 52b8ac8 Implement frozen features, candidate harness, evaluation, leakage tests
+3. b64e630 Evaluation results on 2015-2022 (no candidate passes the keep rule)
+4. d8eee6d Gate report
+5. 7812eff Data quality: relocated-team alias normalization (STL/SD/OAK), kept separate from the Phase 3A research
+
+A final documentation-only commit updates this header. Nothing else changed.
+
+**Pull request:** [PR #2](https://github.com/johnlettieri1/nfl-quant-edge-engine/pull/2) into `main`, approved October 15, 2026.
 **Date:** October 15, 2026
-**Status:** Experiment complete. Stopped at the Phase 3A gate. Holdout 2023-2025 never loaded.
+**Status:**
+- Experiment complete; no Phase 3A candidate advances.
+- `ridge8_v1` stays live, unchanged.
+- Holdout 2023-2025 never loaded.
 
 ---
 
