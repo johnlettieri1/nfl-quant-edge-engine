@@ -25,13 +25,13 @@ groups:
     - betmgm
     - betrivers
     - espnbet             # theScore Bet (formerly ESPN BET)
-    - ballybet            # provisional: availability verified by the first Phase 4 pull
+    - ballybet            # Bally Bet: verified returned by the Oct 15 2026 validation pull (27 events)
   reference_sharp:        # research / CLV reference only, never presented as usable in NY
     - pinnacle
   other_offshore:         # research only, never recommended for wagering
     - betonlineag
     - lowvig
-    - bovada              # provisional: continuity with the pre-spec snapshot
+    - bovada              # continuity with the pre-spec snapshot (returned in validation pull)
     - betus               # legacy pre-spec snapshot only
     - mybookieag          # legacy pre-spec snapshot only
 
