@@ -96,3 +96,10 @@ def test_every_2026_venue_is_mapped():
     s = s[s.season == 2026]
     missing = [r.game_id for r in s.itertuples() if W.venue_for(r.stadium_id, r.stadium) is None]
     assert missing == []
+
+
+def test_horizon_counts_from_gmt_midnight_and_skips_games_beyond_it(tmp_path):
+    from src.nfl.market import phase4_config as C
+    late = NOW.replace(hour=0, minute=0) + timedelta(days=C.WEATHER_FORECAST_DAYS) - timedelta(hours=2)
+    s, calls, df = run(tmp_path, [("2026_07_SEA_DEN", late.isoformat())])
+    assert df.empty and calls == []        # window would run past the forecast horizon: not recorded at all

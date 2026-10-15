@@ -19,7 +19,7 @@ import hashlib
 import json
 import logging
 import statistics
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -127,11 +127,14 @@ def capture_for_snapshot(snapshot_id: str, games: list[tuple[str, str]], schedul
     """games = [(game_id, kickoff_utc_iso)] from the odds snapshot just taken (pregame only)."""
     retrieved = now or datetime.now(timezone.utc)
     sched = schedules.set_index("game_id")
+    # Open-Meteo's forecast_days window starts at 00:00 GMT of the request day, not at the request time.
+    horizon_end = retrieved.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) \
+        + timedelta(days=C.WEATHER_FORECAST_DAYS)
     plan = []
     for gid, kick in games:
         kickoff = parse_utc(kick)
         hours = (kickoff - retrieved).total_seconds() / 3600
-        if hours <= 0 or hours > C.WEATHER_FORECAST_DAYS * 24 - C.WEATHER_WINDOW_HOURS or gid not in sched.index:
+        if hours <= 0 or kickoff + timedelta(hours=C.WEATHER_WINDOW_HOURS) > horizon_end or gid not in sched.index:
             continue  # never record weather at or after kickoff; never beyond the forecast horizon
         r = sched.loc[gid]
         v = venue_for(r.get("stadium_id"), r.get("stadium"))

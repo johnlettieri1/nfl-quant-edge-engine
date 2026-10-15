@@ -56,7 +56,7 @@ DISPERSION_BUCKETS = ((0.0, 0.5, "0"), (0.5, 1.0, "0.5"), (1.0, float("inf"), "1
 # ---- Weather (pre-registered; do not change after 2026 outcomes are seen) -------------------
 WEATHER_PROVIDER = "open-meteo"
 WEATHER_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
-WEATHER_FORECAST_DAYS = 10
+WEATHER_FORECAST_DAYS = 16          # Open-Meteo maximum; horizon counts from 00:00 GMT of the request day
 WEATHER_WINDOW_HOURS = 4           # kickoff hour + next 3 hours
 WEATHER_HOURLY_VARS = ("temperature_2m", "relative_humidity_2m", "precipitation_probability", "precipitation",
                        "snowfall", "weather_code", "wind_speed_10m", "wind_gusts_10m")
