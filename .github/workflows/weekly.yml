@@ -114,13 +114,15 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: python run.py odds --kind ${{ steps.gate.outputs.kind }} --trigger ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'schedule' }}
 
+      # Settlement and predictions spend no credits, so they still run if the odds step was refused
+      # (HALT file, reserve, weekly cap); the job is still marked failed so the refusal is visible.
       - name: Record results (Tuesday)
-        if: steps.gate.outputs.kind == 'tue_scheduled'
+        if: always() && steps.gate.outputs.kind == 'tue_scheduled'
         working-directory: code
         run: python run.py record-results
 
       - name: Totals prediction snapshot (Thu/Sat/Sun morning)
-        if: contains(fromJSON('["thu_scheduled","sat_scheduled","sun_scheduled"]'), steps.gate.outputs.kind)
+        if: always() && contains(fromJSON('["thu_scheduled","sat_scheduled","sun_scheduled"]'), steps.gate.outputs.kind)
         working-directory: code
         run: python run.py predict
 

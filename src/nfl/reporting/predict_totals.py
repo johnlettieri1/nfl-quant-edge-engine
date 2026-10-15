@@ -12,7 +12,7 @@ Pipeline:
      nflverse's schedule-embedded line and juice
   -> one immutable JSON snapshot: data/predictions/totals_<season>_wk<NN>_<UTC ts>.json
 
-Phase 4 (Oct 2026): market fields come from paired per-book quotes (data/odds/quotes_v2.csv): every
+Phase 4 (Oct 2026): market fields come from paired per-book quotes (data/odds/quotes/*.csv): every
 price is stored next to the exact line it was quoted at (median, canonical-line consensus prices,
 best lines with their own book and price, NY-actionable best lines, Pinnacle reference). The lean
 still uses market_total = median across all observed books, so projection, edge and lean logic
