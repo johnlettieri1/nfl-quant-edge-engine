@@ -1,0 +1,22 @@
+{
+  "generated_at": "2026-10-15T21:04:07.432475+00:00",
+  "models": [
+    "ridge8_v1",
+    "p3a_c3_xpl",
+    "m0_market",
+    "r0_line",
+    "r1_ridge8",
+    "r1o_ridge8_origcodes",
+    "r1_form",
+    "r1_pace",
+    "r1_xpl",
+    "r1_poss",
+    "r2_phase3a",
+    "r3_conservative"
+  ],
+  "n_schedule_rows_used": 6421,
+  "max_season": 2022,
+  "python": "3.13.16",
+  "pandas": "3.0.5",
+  "numpy": "2.5.3"
+}

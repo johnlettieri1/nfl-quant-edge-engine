@@ -1,0 +1,17 @@
+{
+ "report_rows": 53054,
+ "rows_unmatched_to_game": 17,
+ "rows_modified_at_or_after_kickoff_dropped": 25,
+ "hours_before_kickoff_median": 54.214305555555555,
+ "share_modified_within_24h_of_kickoff": 0.0022248618888700343,
+ "weighted_rows_without_pfr_id": 8,
+ "games": 2707,
+ "mean_by_group": {
+  "inj_qb": 0.0793275920453146,
+  "inj_ol": 0.4415219800517178,
+  "inj_wrte": 0.3678533277921438,
+  "inj_rb": 0.10920422361778104,
+  "inj_front": 0.4965601526905553,
+  "inj_sec": 0.4631129940893978
+ }
+}
