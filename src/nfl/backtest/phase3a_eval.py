@@ -45,7 +45,7 @@ def logit_slope(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float]:
 
 
 def ece(dec: pd.DataFrame) -> tuple[float, pd.DataFrame]:
-    b = pd.cut(dec.p_pick, PBINS, right=False)
+    b = pd.cut(dec.p_pick, PBINS, right=False).rename("pbin")
     t = dec.groupby(b, observed=True).agg(n=("win", "size"), stated=("p_pick", "mean"), realized=("win", "mean")).reset_index()
     t["gap"] = t.realized - t.stated
     return float((t.n / t.n.sum() * t.gap.abs()).sum()), t

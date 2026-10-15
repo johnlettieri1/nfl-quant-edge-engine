@@ -122,7 +122,8 @@ def cmd_phase3a(a):
     from src.nfl.backtest.phase3a_eval import evaluate_all
     from src.nfl.backtest.phase3a_harness import CANDIDATES, run_candidates
     out = Path(a.out)
-    run_candidates(out / "predictions")
+    if not a.skip_build:
+        run_candidates(out / "predictions")
     frozen = Path(a.frozen) if a.frozen else Path("data/processed/baseline")
     res = evaluate_all(out / "predictions", frozen / "baseline_predictions_dev_2015_2022.csv", out / "analysis",
                        list(CANDIDATES), ref_rep_csv=frozen / "baseline_predictions_replication_2010_2014.csv")
@@ -148,7 +149,7 @@ def main():
     s = sub.add_parser("ledger"); s.set_defaults(fn=cmd_ledger)
     s = sub.add_parser("data-style"); s.add_argument("--first-season", type=int, default=1999); s.add_argument("--last-season", type=int, default=2022)
     s.add_argument("--force", action="store_true"); s.set_defaults(fn=cmd_data_style)
-    s = sub.add_parser("phase3a"); s.add_argument("--out", default="data/processed/phase3a"); s.add_argument("--frozen"); s.set_defaults(fn=cmd_phase3a)
+    s = sub.add_parser("phase3a"); s.add_argument("--out", default="data/processed/phase3a"); s.add_argument("--frozen"); s.add_argument("--skip-build", action="store_true"); s.set_defaults(fn=cmd_phase3a)
     s = sub.add_parser("test"); s.add_argument("--leakage-only", action="store_true"); s.set_defaults(fn=cmd_test)
     a = p.parse_args(); a.fn(a)
 
