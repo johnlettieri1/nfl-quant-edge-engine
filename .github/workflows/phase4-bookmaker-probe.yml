@@ -4,6 +4,7 @@
 # time if a result file already exists, never retries, never stores the key, and commits its
 # result only to docs/phase4/probe/ on this same dev branch (never main, never records).
 # Removed from the branch after the result is captured.
+# Attempt 2: adds a free /sports balance check and annotations (attempt 1 exited 1 with no readable log).
 name: Phase 4 bookmaker probe
 
 on:
@@ -29,6 +30,7 @@ jobs:
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: |
+          echo "::notice title=probe::stage=start"
           if ls docs/phase4/probe/bookmaker_probe_*.json >/dev/null 2>&1; then
             echo "Probe result already exists; refusing to spend another credit."; exit 0
           fi
@@ -40,14 +42,27 @@ jobs:
           params = {"markets": "totals", "oddsFormat": "american", "bookmakers": ",".join(BOOKS)}
           url = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?" + urllib.parse.urlencode(
               {**params, "apiKey": os.environ["ODDS_API_KEY"]})
+          def note(msg): print(f"::notice title=probe::{msg}", flush=True)
+          def free_balance():
+              u = "https://api.the-odds-api.com/v4/sports?" + urllib.parse.urlencode({"apiKey": os.environ["ODDS_API_KEY"]})
+              req = urllib.request.Request(u, headers={"User-Agent": "nfl-quant-edge-engine-phase4-probe"})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      hh = {k.lower(): v for k, v in r.headers.items()}; return r.status, hh.get("x-requests-remaining"), hh.get("x-requests-used")
+              except urllib.error.HTTPError as e:
+                  hh = {k.lower(): v for k, v in e.headers.items()}; return e.code, hh.get("x-requests-remaining"), hh.get("x-requests-used")
+          pre = free_balance(); note(f"free /sports pre-check status={pre[0]} remaining={pre[1]} used={pre[2]}")
           started = datetime.now(timezone.utc).isoformat()
           try:
-              with urllib.request.urlopen(url, timeout=30) as r:
+              with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "nfl-quant-edge-engine-phase4-probe"}), timeout=30) as r:
                   status, body, hdr = r.status, r.read(), dict(r.headers)
           except urllib.error.HTTPError as e:
               status, body, hdr = e.code, e.read(), dict(e.headers)
           fetched = datetime.now(timezone.utc).isoformat()
           h = {k.lower(): v for k, v in hdr.items()}
+          note(f"paid /odds status={status} x-requests-last={h.get('x-requests-last')} remaining={h.get('x-requests-remaining')} used={h.get('x-requests-used')}")
+          if status != 200:
+              note("non-200 body: " + body.decode("utf-8", "replace")[:500])
           out = {"schema_version": "phase4_bookmaker_probe_v1", "retrieval_started_at": started, "fetched_at": fetched,
                  "endpoint": "/v4/sports/americanfootball_nfl/odds", "request_params": params,
                  "http_status": status, "x_requests_last": h.get("x-requests-last"),
@@ -65,6 +80,8 @@ jobs:
                                 "title": next((bk["title"] for g in games for bk in g.get("bookmakers", []) if bk["key"] == b), None)}
               out["unexpected_books"] = sorted({bk["key"] for g in games for bk in g.get("bookmakers", [])} - set(BOOKS))
           out["per_book"] = summary
+          out["free_precheck"] = {"status": pre[0], "remaining": pre[1], "used": pre[2]}
+          note("per_book=" + json.dumps({k: v["events_with_totals"] for k, v in summary.items()}) + " unexpected=" + json.dumps(out.get("unexpected_books")))
           out["response_body"] = body.decode("utf-8", "replace")
           assert os.environ["ODDS_API_KEY"] not in out["response_body"]
           ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -72,6 +89,7 @@ jobs:
           with open(path, "x") as f:
               json.dump(out, f, indent=1)
           print(json.dumps({k: v for k, v in out.items() if k != "response_body"}, indent=1))
+          note(f"wrote {path}")
           PY
       - name: Commit result to this dev branch only
         run: |
@@ -81,4 +99,5 @@ jobs:
           if [ -n "$bad" ]; then echo "refusing: $bad"; exit 1; fi
           if git diff --cached | grep -E -i 'apiKey=' ; then echo "possible secret"; exit 1; fi
           git -c user.name="phase4-probe-bot" -c user.email="phase4-probe-bot@users.noreply.github.com" commit -q -m "Phase 4: bookmaker availability probe result"
-          git push origin HEAD:refs/heads/phase-4-market-clv
+          git push origin HEAD:refs/heads/phase-4-market-clv || { echo "::error title=probe::push failed"; exit 1; }
+          echo "::notice title=probe::pushed result"
