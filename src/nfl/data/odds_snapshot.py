@@ -1,178 +1,278 @@
-"""Per-book NFL totals snapshots from The Odds API (Phase 2B).
+"""Per-book NFL totals snapshots from The Odds API (Phase 4, spec docs/phase4/PHASE_4_SPEC.md).
 
-One call = one snapshot. Every snapshot is stored three ways, all append-only:
+One paid call = one snapshot = 1 credit (totals market, the frozen 10-book list in
+configs/phase4_books.yaml). Every snapshot is stored two ways, both append-only:
 
-  data/odds/raw/totals_<UTC ts>_<tag>.json     the untouched API payload (immutable)
-  data/odds/book_lines.csv                     one row per (snapshot, game, book):
-                                               total_line, over_price, under_price
-  data/odds/game_summary.csv                   one row per (snapshot, game):
-                                               market_median, lowest_total, highest_total,
-                                               best Over number/price/book, best Under
-                                               number/price/book, de-vigged consensus
-                                               P(over), n_books, timestamp, tag
+  data/odds/raw/totals_<UTC ts>_<kind>.json   envelope `odds_raw_v2`: request params (never the key),
+                                              usage headers, code SHA, workflow run id, SHA-256 of the
+                                              exact response bytes, and the response body itself.
+                                              Created exclusively; never overwritten.
+  data/odds/quotes_v2.csv                     one row per (snapshot, game, book): ONE book, ONE total
+                                              line, THAT book's Over and Under prices at that line.
 
-Tags: "opener" (the Tuesday snapshot that starts the week's line-movement record),
-"current" (any mid-week pull), "pregame" (a pull taken as close to kickoff as the
-schedule allows). CLV in the results ledger uses the last pregame-or-current
-snapshot before kickoff as the closing line, falling back to nflverse's closing line.
+Terminology (spec section 8): snapshots carry a `snapshot_kind` describing what we did
+(tue_scheduled, thu_scheduled, sat_scheduled, sun_scheduled, sun_night_scheduled, pregame_window,
+manual; the one pre-spec file is legacy_current). Per-game roles (first_observed,
+last_observed_pregame, close_quality) are computed in src/nfl/market, never stored as tags.
+Nothing here is called an "opener" or a "closing line".
 
-Cost: one request per snapshot (one sport, one market, one region = 1 credit).
-Fourteen pulls a week is about 15 credits; the free 500-credit tier is plenty.
-
-"Best number" convention: an Over bettor wants the LOWEST total (then the best price);
-an Under bettor wants the HIGHEST total (then the best price). Ties on the number are
-broken by price (higher American price is better for the bettor).
+The legacy Phase 2B files data/odds/book_lines.csv and data/odds/game_summary.csv are frozen:
+this module never writes them again (their rows stay untouched on the records branch).
 """
 from __future__ import annotations
 
 import csv
+import hashlib
+import io
 import json
 import logging
-import statistics
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 
-from src.nfl.data.odds_api import fetch_game_odds
+from src.nfl.data.odds_api import fetch_balance, fetch_totals_raw
 from src.nfl.data.team_mapping import to_nflverse_code
-from src.nfl.models.moneyline.baselines import american_to_prob
+from src.nfl.market import phase4_config as C
+from src.nfl.market.books import request_bookmakers
+from src.nfl.market.timing import (ET, UTC, et_date, is_pregame, minutes_to_kickoff, nflverse_kickoff_utc,
+                                   parse_raw_name, parse_utc, pulls_this_week, resolve_kickoff, snapshot_ts)
 
 logger = logging.getLogger(__name__)
 
 ODDS_DIR = Path("data/odds")
-BOOK_FIELDS = ["snapshot_ts", "tag", "game_id", "event_id", "commence_time", "home_team", "away_team",
-               "book", "total_line", "over_price", "under_price", "book_last_update"]
-SUMMARY_FIELDS = ["snapshot_ts", "tag", "game_id", "event_id", "commence_time", "home_team", "away_team",
-                  "n_books", "market_median", "lowest_total", "highest_total",
-                  "best_over_line", "best_over_price", "best_over_book",
-                  "best_under_line", "best_under_price", "best_under_book",
-                  "consensus_over_prob", "consensus_under_prob", "matched_schedule"]
+RAW_SCHEMA = "odds_raw_v2"
+QUOTES_FILE = "quotes_v2.csv"
+QUOTE_FIELDS = ["snapshot_id", "snapshot_ts_utc", "snapshot_kind", "event_id", "game_id", "match_method",
+                "home_team", "away_team", "commence_time_utc_as_reported", "kickoff_utc_resolved", "kickoff_et",
+                "minutes_to_kickoff", "is_pregame", "book", "total_line", "over_price", "under_price",
+                "book_last_update", "quote_age_minutes", "raw_file", "response_sha256"]
 
 
-def _price_better(a: float, b: float) -> bool:
-    """American odds: is price a better for the bettor than b?"""
-    return a > b
+class BudgetError(RuntimeError):
+    """A paid pull was refused before any credit was spent."""
 
 
-def _devig(p_over_raw: float, p_under_raw: float) -> float:
-    return p_over_raw / (p_over_raw + p_under_raw)
+class CostAnomalyError(RuntimeError):
+    """The API charged more than the approved plan expects. The raw response is already saved."""
 
 
-def match_game_id(home: str, away: str, commence_iso: str, schedules: pd.DataFrame | None) -> str | None:
-    """Match an Odds API event to a nflverse game_id by team codes and a +/-1 day
-    window around the kickoff date in US Eastern time. Returns None when unmatched
-    (never guessed)."""
+# ---- matching -------------------------------------------------------------------------------
+
+def match_game_id(home: str, away: str, commence_iso: str, schedules: pd.DataFrame | None) -> tuple[str | None, str]:
+    """Match an Odds API event to a nflverse game_id by team codes and the kickoff's US Eastern
+    calendar date (zoneinfo, DST-aware). Falls back to a +/-1 day window, flagged. Never guesses."""
     if schedules is None:
-        return None
-    kickoff = datetime.fromisoformat(commence_iso.replace("Z", "+00:00"))
-    # ET is UTC-4 or UTC-5; a 1-day window on either side absorbs the difference.
-    day = (kickoff - timedelta(hours=5)).date()
+        return None, "no_schedule"
+    d = et_date(parse_utc(commence_iso))
     s = schedules[(schedules.home_team == home) & (schedules.away_team == away)]
-    s = s[pd.to_datetime(s.gameday).dt.date.between(day - timedelta(days=1), day + timedelta(days=1))]
-    if len(s) == 1:
-        return str(s.iloc[0].game_id)
-    return None
+    days = pd.to_datetime(s.gameday).dt.date
+    exact = s[days == d]
+    if len(exact) == 1:
+        return str(exact.iloc[0].game_id), "team_et_date"
+    near = s[days.between(d - timedelta(days=1), d + timedelta(days=1))]
+    if len(near) == 1:
+        return str(near.iloc[0].game_id), "team_et_date_window"
+    return None, "unmatched"
 
 
-def parse_totals_payload(raw_games: list[dict], snapshot_ts: str, tag: str,
-                         schedules: pd.DataFrame | None = None) -> tuple[list[dict], list[dict]]:
-    """Pure parsing, no I/O: returns (book_rows, summary_rows)."""
-    book_rows, summary_rows = [], []
+def _nflverse_kickoff(game_id: str | None, schedules: pd.DataFrame | None):
+    if game_id is None or schedules is None:
+        return None
+    row = schedules[schedules.game_id == game_id]
+    if len(row) != 1:
+        return None
+    r = row.iloc[0]
+    return nflverse_kickoff_utc(str(r.gameday)[:10], None if pd.isna(r.gametime) else str(r.gametime))
+
+
+# ---- parsing --------------------------------------------------------------------------------
+
+def parse_quotes(raw_games: list[dict], snapshot_id: str, snapshot_dt: datetime, kind: str,
+                 schedules: pd.DataFrame | None, raw_file: str, sha: str) -> list[dict]:
+    """Pure parsing: one row per (game, book) with a valid paired two-way total. A book whose Over
+    and Under points differ, or that lacks either side, is skipped (never patched)."""
+    rows = []
     for g in raw_games:
-        home = to_nflverse_code(g["home_team"]); away = to_nflverse_code(g["away_team"])
+        home, away = to_nflverse_code(g["home_team"]), to_nflverse_code(g["away_team"])
         if home is None or away is None:
-            logger.warning("Unmapped team names: %s @ %s", g["away_team"], g["home_team"])
+            logger.warning("Unmapped team names: %s @ %s", g.get("away_team"), g.get("home_team"))
             continue
-        game_id = match_game_id(home, away, g["commence_time"], schedules)
-        per_book = []
+        game_id, method = match_game_id(home, away, g["commence_time"], schedules)
+        commence = parse_utc(g["commence_time"])
+        kickoff = resolve_kickoff(commence, _nflverse_kickoff(game_id, schedules))
+        mtk = round(minutes_to_kickoff(snapshot_dt, kickoff), 1)
         for book in g.get("bookmakers", []):
             for market in book.get("markets", []):
-                if market["key"] != "totals":
+                if market.get("key") != "totals":
                     continue
-                over = next((o for o in market["outcomes"] if o["name"] == "Over"), None)
-                under = next((o for o in market["outcomes"] if o["name"] == "Under"), None)
+                over = next((o for o in market.get("outcomes", []) if o.get("name") == "Over"), None)
+                under = next((o for o in market.get("outcomes", []) if o.get("name") == "Under"), None)
                 if not (over and under and "point" in over and "point" in under):
                     continue
-                if over["point"] != under["point"]:
-                    continue  # malformed two-way; skip, never patch
-                row = {"snapshot_ts": snapshot_ts, "tag": tag, "game_id": game_id, "event_id": g["id"],
-                       "commence_time": g["commence_time"], "home_team": home, "away_team": away,
-                       "book": book["key"], "total_line": float(over["point"]),
-                       "over_price": int(over["price"]), "under_price": int(under["price"]),
-                       "book_last_update": market.get("last_update")}
-                per_book.append(row); book_rows.append(row)
-        if not per_book:
+                if float(over["point"]) != float(under["point"]):
+                    continue
+                lu = market.get("last_update") or book.get("last_update")
+                age = None if not lu else round((snapshot_dt - parse_utc(lu)).total_seconds() / 60.0, 1)
+                rows.append({
+                    "snapshot_id": snapshot_id, "snapshot_ts_utc": snapshot_dt.isoformat(), "snapshot_kind": kind,
+                    "event_id": g["id"], "game_id": game_id, "match_method": method,
+                    "home_team": home, "away_team": away,
+                    "commence_time_utc_as_reported": commence.isoformat(),
+                    "kickoff_utc_resolved": kickoff.isoformat(),
+                    "kickoff_et": kickoff.astimezone(ET).isoformat(),
+                    "minutes_to_kickoff": mtk, "is_pregame": is_pregame(snapshot_dt, kickoff),
+                    "book": book["key"], "total_line": float(over["point"]),
+                    "over_price": int(over["price"]), "under_price": int(under["price"]),
+                    "book_last_update": lu, "quote_age_minutes": age,
+                    "raw_file": raw_file, "response_sha256": sha,
+                })
+    return rows
+
+
+# ---- immutable / atomic writes --------------------------------------------------------------
+
+def write_exclusive(path: Path, data: bytes) -> Path:
+    """Exclusive create. On a name collision the data is kept under a -dupN suffix (a paid
+    response is never dropped) and nothing existing is overwritten."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cand, n = path, 0
+    while True:
+        try:
+            with open(cand, "xb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            return cand
+        except FileExistsError:
+            n += 1
+            cand = path.with_name(f"{path.stem}-dup{n}{path.suffix}")
+
+
+def append_rows_atomic(path: Path, rows: list[dict], fields: list[str]) -> int:
+    """Append-only CSV write as a single buffered write. Refuses a header mismatch and refuses
+    to append after a torn (newline-less) final row instead of silently gluing rows together."""
+    if not rows:
+        return 0
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.stat().st_size > 0:
+        with open(path, "rb") as f:
+            header = f.readline().decode("utf-8").rstrip("\r\n")
+            f.seek(-1, os.SEEK_END)
+            last = f.read(1)
+        if header != ",".join(fields):
+            raise RuntimeError(f"{path}: header mismatch; refusing to append")
+        if last != b"\n":
+            raise RuntimeError(f"{path}: final row is torn (no trailing newline); refusing to append")
+    else:
+        w.writeheader()
+    w.writerows(rows)
+    data = buf.getvalue().encode("utf-8")
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, data)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    return len(rows)
+
+
+def raw_names(odds_dir: Path = ODDS_DIR) -> list[str]:
+    d = odds_dir / "raw"
+    return sorted(p.name for p in d.glob("totals_*.json")) if d.exists() else []
+
+
+# ---- the snapshot ---------------------------------------------------------------------------
+
+def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | None = None,
+                  odds_dir: Path = ODDS_DIR, target_kickoffs: list[str] | None = None,
+                  now: datetime | None = None, preflight: bool = True) -> dict:
+    """Budget preflight (free) -> one paid pull -> raw v2 envelope -> paired quotes rows."""
+    if kind not in C.ALL_KINDS or kind == "legacy_current":
+        raise ValueError(f"invalid snapshot kind {kind}")
+    names = raw_names(odds_dir)
+    balance = None
+    if preflight:
+        used_week = pulls_this_week(now or datetime.now(UTC), names)
+        if used_week >= C.WEEKLY_CREDIT_CAP:
+            raise BudgetError(f"weekly cap reached: {used_week} pulls since Tuesday 00:00 ET (cap {C.WEEKLY_CREDIT_CAP})")
+        balance = fetch_balance()
+        if balance["remaining"] is not None and balance["remaining"] < C.CREDIT_RESERVE:
+            raise BudgetError(f"credit reserve: {balance['remaining']} remaining < reserve {C.CREDIT_RESERVE}")
+    res = fetch_totals_raw(request_bookmakers())
+    body: bytes = res.pop("body")
+    sha = hashlib.sha256(body).hexdigest()
+    fetched = parse_utc(res["fetched_at"])
+    ts = snapshot_ts(fetched)
+    envelope = {"schema_version": RAW_SCHEMA, "snapshot_id": f"{ts}_{kind}", "snapshot_kind": kind, "trigger": trigger,
+                **res, "preflight_balance": balance, "spec_version": C.SPEC_VERSION,
+                "code_sha": os.environ.get("GITHUB_SHA"), "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
+                "target_kickoffs": target_kickoffs or [], "response_sha256": sha,
+                "response_body": body.decode("utf-8", "replace")}
+    raw_path = write_exclusive(odds_dir / "raw" / f"totals_{ts}_{kind}.json",
+                               json.dumps(envelope, indent=1).encode("utf-8"))
+    # The snapshot id follows the file actually written (a -dupN collision gets its own id).
+    snapshot_id = raw_path.stem.removeprefix("totals_")
+    if snapshot_id != envelope["snapshot_id"]:
+        logger.warning("raw name collision; saved as %s", raw_path.name)
+    if res["http_status"] != 200:
+        raise RuntimeError(f"Odds API returned {res['http_status']}; raw saved at {raw_path} (no quotes parsed)")
+    last = res.get("x_requests_last")
+    games = json.loads(body)
+    rows = parse_quotes(games, snapshot_id, fetched, kind, schedules, raw_path.name, sha)
+    append_rows_atomic(odds_dir / QUOTES_FILE, rows, QUOTE_FIELDS)
+    summary = {"snapshot_id": snapshot_id, "kind": kind, "raw_path": str(raw_path), "games": len(games),
+               "quote_rows": len(rows), "unmatched_games": len({r["event_id"] for r in rows if r["game_id"] is None}),
+               "books_returned": sorted({r["book"] for r in rows}), "x_requests_last": last,
+               "x_requests_remaining": res.get("x_requests_remaining")}
+    logger.info("Odds snapshot %s", json.dumps(summary))
+    if last is not None and float(last) > C.EXPECTED_CREDITS_PER_PULL:
+        raise CostAnomalyError(f"pull cost {last} credits (expected {C.EXPECTED_CREDITS_PER_PULL}); data saved, stopping")
+    summary["games_for_weather"] = sorted({(r["game_id"], r["kickoff_utc_resolved"]) for r in rows
+                                           if r["game_id"] and r["is_pregame"]})
+    return summary
+
+
+# ---- readers (derived tables rebuild from raw; raw is the source of truth) ------------------
+
+def iter_raw_snapshots(odds_dir: Path = ODDS_DIR):
+    """Yield dicts {snapshot_id, snapshot_dt, kind, raw_file, sha, hash_basis, http_status, games}
+    for every raw file, including the single pre-spec legacy file (kind legacy_current)."""
+    for name in raw_names(odds_dir):
+        parsed = parse_raw_name(name)
+        if not parsed:
             continue
-        lines = [r["total_line"] for r in per_book]
-        best_over = min(per_book, key=lambda r: (r["total_line"], -r["over_price"]))
-        best_under = max(per_book, key=lambda r: (r["total_line"], r["under_price"]))
-        probs = [_devig(float(american_to_prob(pd.Series([r["over_price"]])).iloc[0]),
-                        float(american_to_prob(pd.Series([r["under_price"]])).iloc[0])) for r in per_book]
-        p_over = sum(probs) / len(probs)
-        summary_rows.append({
-            "snapshot_ts": snapshot_ts, "tag": tag, "game_id": game_id, "event_id": g["id"],
-            "commence_time": g["commence_time"], "home_team": home, "away_team": away,
-            "n_books": len(per_book), "market_median": statistics.median(lines),
-            "lowest_total": min(lines), "highest_total": max(lines),
-            "best_over_line": best_over["total_line"], "best_over_price": best_over["over_price"], "best_over_book": best_over["book"],
-            "best_under_line": best_under["total_line"], "best_under_price": best_under["under_price"], "best_under_book": best_under["book"],
-            "consensus_over_prob": round(p_over, 4), "consensus_under_prob": round(1 - p_over, 4),
-            "matched_schedule": game_id is not None,
-        })
-    return book_rows, summary_rows
+        env = json.loads((odds_dir / "raw" / name).read_text(encoding="utf-8"))
+        if env.get("schema_version") == RAW_SCHEMA:
+            body = env["response_body"].encode("utf-8")
+            yield {"snapshot_id": name[len("totals_"):-len(".json")], "snapshot_dt": parse_utc(env["fetched_at"]),
+                   "kind": env["snapshot_kind"], "raw_file": name, "sha": env["response_sha256"],
+                   "hash_basis": "response_bytes", "hash_ok": hashlib.sha256(body).hexdigest() == env["response_sha256"],
+                   "http_status": env["http_status"], "games": json.loads(body) if env["http_status"] == 200 else []}
+        else:  # Phase 2B v1 envelope (one file, Oct 15 2026): original bytes were not kept
+            games = env.get("games", [])
+            sha = hashlib.sha256(json.dumps(games, sort_keys=True).encode("utf-8")).hexdigest()
+            yield {"snapshot_id": f"{parsed[0].strftime('%Y%m%dT%H%M%SZ')}_legacy_current",
+                   "snapshot_dt": parse_utc(env["fetched_at"]), "kind": "legacy_current", "raw_file": name,
+                   "sha": sha, "hash_basis": "reserialized_games_json", "hash_ok": None, "http_status": 200,
+                   "games": games}
 
 
-def _append_csv(path: Path, rows: list[dict], fields: list[str]) -> None:
-    write_header = not path.exists()
-    with open(path, "a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        if write_header:
-            w.writeheader()
-        w.writerows(rows)
+def quotes_from_raw(odds_dir: Path = ODDS_DIR, schedules: pd.DataFrame | None = None) -> pd.DataFrame:
+    rows = []
+    for snap in iter_raw_snapshots(odds_dir):
+        if snap["http_status"] != 200:
+            continue
+        rows += parse_quotes(snap["games"], snap["snapshot_id"], snap["snapshot_dt"], snap["kind"], schedules,
+                             snap["raw_file"], snap["sha"])
+    return pd.DataFrame(rows, columns=QUOTE_FIELDS)
 
 
-def take_snapshot(tag: str = "current", odds_dir: Path = ODDS_DIR, schedules: pd.DataFrame | None = None,
-                  regions: str = "us") -> dict:
-    """Fetch the totals market from every US book, store raw + parsed, return a summary."""
-    raw, meta = fetch_game_odds(markets="totals", regions=regions)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    (odds_dir / "raw").mkdir(parents=True, exist_ok=True)
-    raw_path = odds_dir / "raw" / f"totals_{ts}_{tag}.json"
-    raw_path.write_text(json.dumps({"fetched_at": meta["fetched_at"], "tag": tag, "requests_remaining": meta["requests_remaining"],
-                                    "markets": "totals", "regions": regions, "games": raw}, indent=1))
-    book_rows, summary_rows = parse_totals_payload(raw, ts, tag, schedules)
-    _append_csv(odds_dir / "book_lines.csv", book_rows, BOOK_FIELDS)
-    _append_csv(odds_dir / "game_summary.csv", summary_rows, SUMMARY_FIELDS)
-    unmatched = sum(1 for r in summary_rows if not r["matched_schedule"])
-    logger.info("Odds snapshot %s tag=%s games=%d book_rows=%d unmatched=%d requests_remaining=%s",
-                ts, tag, len(summary_rows), len(book_rows), unmatched, meta["requests_remaining"])
-    return {"snapshot_ts": ts, "tag": tag, "raw_path": str(raw_path), "games": len(summary_rows),
-            "book_rows": len(book_rows), "unmatched": unmatched, "requests_remaining": meta["requests_remaining"]}
-
-
-def load_game_summary(odds_dir: Path = ODDS_DIR) -> pd.DataFrame:
-    path = odds_dir / "game_summary.csv"
+def load_quotes(odds_dir: Path = ODDS_DIR) -> pd.DataFrame:
+    path = odds_dir / QUOTES_FILE
     if not path.exists():
-        return pd.DataFrame(columns=SUMMARY_FIELDS)
-    df = pd.read_csv(path)
-    df["snapshot_dt"] = pd.to_datetime(df.snapshot_ts, format="%Y%m%dT%H%M%SZ", utc=True)
-    df["commence_dt"] = pd.to_datetime(df.commence_time, utc=True)
-    return df
-
-
-def latest_pregame_summary(game_id: str, odds_dir: Path = ODDS_DIR, summary: pd.DataFrame | None = None) -> dict | None:
-    """Last snapshot row for a game taken before its kickoff (the 'closing' snapshot)."""
-    s = summary if summary is not None else load_game_summary(odds_dir)
-    if s.empty:
-        return None
-    rows = s[(s.game_id == game_id) & (s.snapshot_dt < s.commence_dt)].sort_values("snapshot_dt")
-    return rows.iloc[-1].to_dict() if len(rows) else None
-
-
-def opener_summary(game_id: str, odds_dir: Path = ODDS_DIR, summary: pd.DataFrame | None = None) -> dict | None:
-    s = summary if summary is not None else load_game_summary(odds_dir)
-    if s.empty:
-        return None
-    rows = s[(s.game_id == game_id) & (s.tag == "opener")].sort_values("snapshot_dt")
-    return rows.iloc[0].to_dict() if len(rows) else None
+        return pd.DataFrame(columns=QUOTE_FIELDS)
+    return pd.read_csv(path)

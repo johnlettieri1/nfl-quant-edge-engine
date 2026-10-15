@@ -43,9 +43,25 @@ def _api_key() -> str:
     return key
 
 
-def _get(path: str, params: dict) -> tuple[list | dict, dict]:
+def _request(path: str, params: dict, timeout: int = 30) -> requests.Response:
+    """GET with the key added only at call time. Network errors are re-raised WITHOUT the URL,
+    because requests' exception text includes the full query string (and so the key)."""
     key = _api_key()
-    r = requests.get(f"{BASE_URL}{path}", params={**params, "apiKey": key}, timeout=20)
+    try:
+        return requests.get(f"{BASE_URL}{path}", params={**params, "apiKey": key}, timeout=timeout,
+                            headers={"User-Agent": "nfl-quant-edge-engine"})
+    except requests.RequestException as e:
+        raise OddsAPIError(f"The Odds API {path} request failed: {type(e).__name__}") from None
+
+
+def _usage(headers) -> dict:
+    h = {k.lower(): v for k, v in headers.items()}
+    return {"x_requests_remaining": h.get("x-requests-remaining"), "x_requests_used": h.get("x-requests-used"),
+            "x_requests_last": h.get("x-requests-last")}
+
+
+def _get(path: str, params: dict) -> tuple[list | dict, dict]:
+    r = _request(path, params, timeout=20)
     if r.status_code != 200:
         raise OddsAPIError(f"The Odds API {path} returned {r.status_code}: {r.text[:300]}")
     meta = {
@@ -66,6 +82,29 @@ def fetch_game_odds(markets: str = "h2h,spreads,totals", regions: str = "us") ->
     logger.info("Fetched live game odds for %d games (%s requests remaining)",
                 len(data), meta["requests_remaining"])
     return data, meta
+
+
+def fetch_balance() -> dict:
+    """Free call (/sports does not count against the quota) that reports the current credit balance."""
+    r = _request("/sports", {})
+    if r.status_code != 200:
+        raise OddsAPIError(f"The Odds API /sports returned {r.status_code}: {r.text[:300]}")
+    u = _usage(r.headers)
+    return {"remaining": None if u["x_requests_remaining"] is None else int(float(u["x_requests_remaining"])),
+            "used": None if u["x_requests_used"] is None else int(float(u["x_requests_used"]))}
+
+
+def fetch_totals_raw(bookmakers: list[str]) -> dict:
+    """Phase 4 paid pull: NFL totals for an explicit book list (<= 10 books = 1 credit).
+    Returns the exact response bytes so the stored hash is verifiable. Never retries."""
+    if not bookmakers or len(bookmakers) > 10:
+        raise OddsAPIError("Phase 4 pulls must name 1-10 bookmakers (1 credit)")
+    params = {"markets": "totals", "oddsFormat": "american", "dateFormat": "iso", "bookmakers": ",".join(bookmakers)}
+    started = datetime.now(timezone.utc).isoformat()
+    r = _request(f"/sports/{SPORT_KEY}/odds", params)
+    return {"endpoint": f"/v4/sports/{SPORT_KEY}/odds", "request_params": params, "http_status": r.status_code,
+            "retrieval_started_at": started, "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "body": r.content, **_usage(r.headers)}
 
 
 def fetch_events() -> tuple[list[dict], dict]:
