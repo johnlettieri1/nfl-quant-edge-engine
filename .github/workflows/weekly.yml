@@ -1,0 +1,55 @@
+# Weekly totals pipeline (Phase 2B). Times are UTC; ET = UTC-4 in the fall.
+#   Tue 14:10 UTC (10:10 AM ET)  opener odds snapshot + record last week's results
+#   Thu/Sat/Sun 13:10 UTC       current odds snapshot + totals prediction snapshot
+# Requires repository secret ODDS_API_KEY. Snapshots and ledger rows are committed
+# back to the repo so the record is immutable and public.
+name: Weekly totals
+
+on:
+  schedule:
+    - cron: "10 14 * * 2"
+    - cron: "10 13 * * 4,6,0"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "odds snapshot tag"
+        default: "current"
+
+permissions:
+  contents: write
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+      - name: Refresh data (incremental)
+        run: python run.py data --first-season 1999
+      - name: Decide tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          elif [ "$(date -u +%u)" = "2" ]; then echo "tag=opener" >> $GITHUB_OUTPUT
+          else echo "tag=current" >> $GITHUB_OUTPUT; fi
+      - name: Odds snapshot
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: python run.py odds --tag ${{ steps.tag.outputs.tag }}
+      - name: Record results (Tuesday)
+        if: steps.tag.outputs.tag == 'opener'
+        run: python run.py record-results
+      - name: Totals prediction snapshot (game days)
+        if: steps.tag.outputs.tag != 'opener'
+        run: python run.py predict
+      - name: Commit snapshots and ledger
+        run: |
+          git config user.name "weekly-bot"
+          git config user.email "weekly-bot@users.noreply.github.com"
+          git add data/odds data/predictions
+          git diff --cached --quiet || git commit -m "weekly: ${{ steps.tag.outputs.tag }} snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push

@@ -15,3 +15,7 @@ __pycache__/
 # (Prediction snapshots ARE committed: they are the immutable record.)
 data/raw/
 data/processed/
+# Phase 2B: per-season pbp cache lives under data/raw (already ignored). Odds snapshots
+# and prediction snapshots ARE committed (immutable record).
+!data/odds/
+data/processed/baseline/

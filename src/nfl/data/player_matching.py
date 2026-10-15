@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-import nfl_data_py as nfl
+import nflreadpy as nfl  # Phase 2B: nfl_data_py is archived; nflreadpy is the nflverse successor
 import pandas as pd
 
 _SUFFIX_RE = re.compile(r"\b(jr|sr|ii|iii|iv|v)\b\.?")
@@ -28,7 +28,7 @@ def build_name_to_gsis_id(active_only: bool = True) -> dict[str, list[str]]:
     a list surfaces ambiguity honestly rather than silently picking one).
     Restricted to recently-active players by default to cut down on
     retired-player name collisions."""
-    players = nfl.import_players()
+    players = nfl.load_players().to_pandas()
     if active_only:
         players = players[players["last_season"].fillna(0) >= 2023]
     players = players[players["gsis_id"].notna() & players["display_name"].notna()]

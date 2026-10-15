@@ -541,7 +541,7 @@ def build() -> None:
   and publish a genuine prospective CLV chart here.</p>
 
   <footer>
-    Generated from immutable prediction snapshots and backtest artifacts. Source data: nflverse via nfl_data_py.
+    Generated from immutable prediction snapshots and backtest artifacts. Source data: nflverse via nflreadpy.
     No fabricated data. See the repository README for full methodology and acceptance criteria.
   </footer>
 </div>

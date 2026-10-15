@@ -7,6 +7,11 @@ must hold the same leak-free guarantee as everything else in this repo.
 from __future__ import annotations
 
 import pandas as pd
+import pytest
+
+# Phase 2B: xgboost moved to the optional [research] extra (the GBM was tested and
+# rejected). The leakage guarantee is still checked whenever it is installed.
+pytest.importorskip("xgboost")
 
 from src.nfl.models.moneyline.xgb_model import walk_forward_xgb_moneyline
 from src.nfl.models.spread.xgb_model import walk_forward_xgb_margin

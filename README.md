@@ -1,3 +1,34 @@
+# NFL Quant Edge Engine (totals)
+
+**Phase 2B (Oct 2026): this fork is now a totals-only (Over/Under) research engine.**
+Data comes from [nflreadpy](https://github.com/nflverse/nflreadpy) (the archived
+`nfl_data_py` is gone), Python 3.11+ (3.12/3.13 tested), and every command runs the
+same on Windows, macOS, Linux, GitHub Actions, and Claude Code through `run.py`:
+
+```
+pip install -e ".[dev]"
+python run.py data                 # schedules + incremental play-by-play cache (data/raw/pbp/<season>.parquet)
+python run.py baseline --compare-to <frozen Phase 2A dir>   # reproduce the frozen Ridge baseline, must be identical
+python run.py odds --tag opener    # per-book totals snapshot (Tuesday); --tag current / pregame on game days
+python run.py predict              # immutable totals snapshot for the next week (data/predictions/totals_*.json)
+python run.py record-results       # settle finished games into data/predictions/totals_ledger.csv with CLV
+python run.py test                 # unit + leakage + property tests
+```
+
+`.github/workflows/weekly.yml` runs the opener snapshot and results on Tuesday and the
+current snapshot plus prediction on Thu/Sat/Sun (needs the `ODDS_API_KEY` secret).
+
+The frozen Phase 2A baseline (development 2015-2022) showed the current model has no
+demonstrated totals edge; snapshots therefore record a model LEAN with
+`recommended_units = 0` until the decision layer is built. Holdout 2023-2025 is never
+evaluated. Moneyline, spread, player props, parlay, and the XGBoost comparison rows are
+kept for history and research only (`pip install -e ".[research]"`); none of them run in
+the weekly path, and their original `make`-era scripts still need `data/raw` from `run.py data`.
+
+---
+
+## Original project README (kshreyan12/nfl-predict, pre-fork)
+
 # NFL Prediction System
 
 A reproducible, honestly-backtested NFL prediction system covering **moneyline**
