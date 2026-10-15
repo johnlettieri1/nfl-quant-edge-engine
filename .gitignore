@@ -19,3 +19,6 @@ data/processed/
 # and prediction snapshots ARE committed (immutable record).
 !data/odds/
 data/processed/baseline/
+
+# Phase 4 derived tables are rebuilt from raw snapshots; never committed.
+data/derived/
