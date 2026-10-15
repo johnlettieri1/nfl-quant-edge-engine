@@ -1,0 +1,93 @@
+# One-shot Phase 4 live validation pull (approved plan, step 15). Runs only on a push to
+# phase-4-market-clv that changes THIS file. Uses the branch code, spends 1 Odds API credit
+# (frozen 10-book list, after the free balance preflight), captures forecast weather, appends to
+# the records branch through the records guard, and reports via annotations.
+# Refuses to run if a validation snapshot already exists. Removed from the branch afterwards.
+name: Phase 4 validation pull
+
+on:
+  push:
+    branches: [phase-4-market-clv]
+    paths: [".github/workflows/phase4-validation.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-records
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase-4-market-clv
+          path: code
+          persist-credentials: false
+      - name: Check out records branch
+        run: |
+          git clone --quiet "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" records
+          git -C records checkout records
+          echo "::notice title=validation::records HEAD before $(git -C records rev-parse HEAD)"
+          if ls records/data/odds/raw/totals_*_manual.json >/dev/null 2>&1; then
+            echo "::error title=validation::a manual snapshot already exists; refusing to spend another credit"; exit 1
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        working-directory: code
+        run: pip install -q -e .
+      - name: Restore prior records
+        run: |
+          mkdir -p code/data/odds code/data/predictions code/data/weather
+          cp -a records/data/odds/. code/data/odds/
+          cp -a records/data/predictions/. code/data/predictions/
+          cp -a records/data/weather/. code/data/weather/ 2>/dev/null || true
+      - name: Schedules only
+        working-directory: code
+        run: python run.py data --schedules-only
+      - name: Live odds snapshot + weather (1 credit)
+        working-directory: code
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: |
+          set -o pipefail
+          python run.py odds --kind manual --trigger validation | tee /tmp/odds.json
+          echo "::notice title=validation-odds::$(tail -1 /tmp/odds.json)"
+      - name: Derived tables (not committed)
+        working-directory: code
+        run: |
+          python run.py phase4-build --out /tmp/derived > /tmp/build.json
+          echo "::notice title=validation-build::$(python -c "import json;d=json.load(open('/tmp/build.json'));print(json.dumps(d))")"
+          python - <<'PY'
+          import pandas as pd
+          ls = pd.read_csv("/tmp/derived/line_shopping.csv")
+          v = ls[ls.snapshot_kind == "manual"]
+          print(f"::notice title=validation-books::manual rows={len(v)} ny_books_median={v.ny_n_books.median()} all_books_median={v.all_n_books.median()} ref_rows={v.ref_book.notna().sum()}")
+          w = pd.read_csv("data/weather/forecasts_v1.csv")
+          print(f"::notice title=validation-weather::rows={len(w)} status={w.data_status.value_counts().to_dict()} roof={w.roof_type.value_counts().to_dict()} w15={int(w.flag_w15.fillna(False).astype(bool).sum())}")
+          q = pd.read_csv("data/odds/quotes_v2.csv")
+          print(f"::notice title=validation-quotes::rows={len(q)} books={sorted(q.book.unique())} unmatched={int(q.game_id.isna().sum())} inplay={int((~q.is_pregame.astype(bool)).sum())}")
+          PY
+      - name: Copy odds + weather to records
+        run: |
+          cp -a code/data/odds/. records/data/odds/
+          mkdir -p records/data/weather
+          cp -a code/data/weather/. records/data/weather/
+      - name: Guard
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: |
+          git -C records add -A
+          python code/src/nfl/ops/records_guard.py --repo records
+          echo "::notice title=validation-staged::$(git -C records diff --cached --name-status | tr '\n' ' ')"
+      - name: Commit and push to records
+        working-directory: records
+        run: |
+          git -c user.name="phase4-validation-bot" -c user.email="phase4-validation-bot@users.noreply.github.com" \
+            commit -q -m "records: Phase 4 manual validation snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push origin HEAD:refs/heads/records
+          echo "::notice title=validation::records HEAD after $(git rev-parse HEAD)"
