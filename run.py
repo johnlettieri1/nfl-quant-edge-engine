@@ -32,6 +32,9 @@ the script changes into the repo root so relative data/ paths resolve.
       Phase 3B-3 inputs (weather text, injuries, snap counts, player ids), through 2022 only.
   python run.py phase3b --context
       Phase 3B-3: weather, injury and QB groups as residual predictors (after 3B-1).
+  python run.py calibration-fit
+      Rebuild the frozen display calibration (src/nfl/models/total/calibration_v1.json) from ridge8_v1
+      walk-forward predictions on seasons <= 2022 only. Not part of the weekly path.
   python run.py alias-check --frozen DIR [--out data/processed/alias_fix]
       Data-quality check: ridge8_v1 as frozen vs the same model with relocated-team codes
       (STL/SD/OAK) normalized, on 2015-2022. Measures only; changes nothing.
@@ -175,6 +178,11 @@ def cmd_data_context(a):
     print(json.dumps(fetch_context()))
 
 
+def cmd_calibration_fit(a):
+    from src.nfl.models.total.fit_calibration import build
+    print(json.dumps(build(), indent=1))
+
+
 def cmd_alias_check(a):
     from src.nfl.backtest.alias_fix_check import run_alias_fix_check
     res = run_alias_fix_check(Path(a.out), Path(a.frozen))
@@ -198,6 +206,7 @@ def main():
     s = sub.add_parser("phase3b"); s.add_argument("--out", default="data/processed/phase3b"); s.add_argument("--skip-build", action="store_true")
     s.add_argument("--context", action="store_true", help="3B-3 weather/injury/QB groups (run after 3B-1)"); s.set_defaults(fn=cmd_phase3b)
     s = sub.add_parser("data-context"); s.set_defaults(fn=cmd_data_context)
+    s = sub.add_parser("calibration-fit"); s.set_defaults(fn=cmd_calibration_fit)
     s = sub.add_parser("alias-check"); s.add_argument("--frozen", required=True); s.add_argument("--out", default="data/processed/alias_fix"); s.set_defaults(fn=cmd_alias_check)
     s = sub.add_parser("test"); s.add_argument("--leakage-only", action="store_true"); s.set_defaults(fn=cmd_test)
     a = p.parse_args(); a.fn(a)
