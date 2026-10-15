@@ -138,7 +138,7 @@ def test_writes_only_under_predictions_and_md_is_labeled(fixture, tmp_path):
     names = sorted(p.name for p in new if p.is_file())
     assert names == sorted([out.name, out.with_suffix(".md").name, "totals_index.json"])
     md = out.with_suffix(".md").read_text()
-    assert "Probabilities shown are CALIBRATED" in md and "Calibrated P(Over)" in md and "—" not in md
+    assert "Probabilities shown are CALIBRATED" in md and "Calibrated P(Over)" in md and "\u2014" not in md
     g = snap["games"][0]
     assert f"{100 * g['calibrated_probability']:.1f}%" in md
 
