@@ -17,6 +17,9 @@ python run.py test                 # unit + leakage + property tests
 
 `.github/workflows/weekly.yml` runs the opener snapshot and results on Tuesday and the
 current snapshot plus prediction on Thu/Sat/Sun (needs the `ODDS_API_KEY` secret).
+Generated records are committed only to the `records` branch (data/odds and
+data/predictions only, append-only, guarded). Source and model changes go through
+normal branches and pull requests into `main`.
 
 The frozen Phase 2A baseline (development 2015-2022) showed the current model has no
 demonstrated totals edge; snapshots therefore record a model LEAN with
