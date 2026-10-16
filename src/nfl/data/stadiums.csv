@@ -1,0 +1,39 @@
+stadium_id,name,aliases,lat,lon,roof_type,city
+ATL97,Mercedes-Benz Stadium,,33.7554,-84.4008,retractable,Atlanta GA
+BAL00,M&T Bank Stadium,,39.2780,-76.6227,outdoors,Baltimore MD
+BOS00,Gillette Stadium,,42.0909,-71.2643,outdoors,Foxborough MA
+BUF00,Highmark Stadium,,42.7738,-78.7870,outdoors,Orchard Park NY
+CAR00,Bank of America Stadium,,35.2258,-80.8528,outdoors,Charlotte NC
+CHI98,Soldier Field,,41.8623,-87.6167,outdoors,Chicago IL
+CIN00,Paycor Stadium,,39.0955,-84.5161,outdoors,Cincinnati OH
+CLE00,Huntington Bank Field,,41.5061,-81.6995,outdoors,Cleveland OH
+DAL00,AT&T Stadium,,32.7473,-97.0945,retractable,Arlington TX
+DEN00,Empower Field at Mile High,,39.7439,-105.0201,outdoors,Denver CO
+DET00,Ford Field,,42.3400,-83.0456,dome,Detroit MI
+GNB00,Lambeau Field,,44.5013,-88.0622,outdoors,Green Bay WI
+HOU00,Reliant Stadium,NRG Stadium,29.6847,-95.4107,retractable,Houston TX
+IND00,Lucas Oil Stadium,,39.7601,-86.1639,retractable,Indianapolis IN
+JAX00,EverBank Stadium,,30.3239,-81.6373,outdoors,Jacksonville FL
+KAN00,GEHA Field at Arrowhead Stadium,Arrowhead Stadium,39.0489,-94.4839,outdoors,Kansas City MO
+LAX01,SoFi Stadium,,33.9535,-118.3392,dome,Inglewood CA
+LON00,Wembley Stadium,,51.5560,-0.2795,outdoors,London UK
+LON02,Tottenham Hotspur Stadium,,51.6043,-0.0664,outdoors,London UK
+MAD01,Bernabeu,Santiago Bernabeu,40.4531,-3.6883,retractable,Madrid ES
+MEL00,Melbourne Cricket Ground,,-37.8200,144.9834,outdoors,Melbourne AU
+MEX00,Estadio Banorte,Estadio Azteca,19.3029,-99.1505,outdoors,Mexico City MX
+MIA00,Hard Rock Stadium,,25.9580,-80.2389,outdoors,Miami Gardens FL
+MIN01,U.S. Bank Stadium,,44.9737,-93.2581,dome,Minneapolis MN
+MUN01,FC Bayern Munich Stadium,Allianz Arena,48.2188,11.6247,outdoors,Munich DE
+NAS00,Nissan Stadium,,36.1665,-86.7713,outdoors,Nashville TN
+NOR00,Caesars Superdome,,29.9511,-90.0812,dome,New Orleans LA
+NYC01,MetLife Stadium,,40.8135,-74.0745,outdoors,East Rutherford NJ
+PAR00,Stade de France,,48.9245,2.3601,outdoors,Saint-Denis FR
+PHI00,Lincoln Financial Field,,39.9008,-75.1675,outdoors,Philadelphia PA
+PHO00,State Farm Stadium,,33.5276,-112.2626,retractable,Glendale AZ
+PIT00,Acrisure Stadium,,40.4468,-80.0158,outdoors,Pittsburgh PA
+RIO00,Maracana Stadium,,-22.9121,-43.2302,outdoors,Rio de Janeiro BR
+SEA00,Lumen Field,,47.5952,-122.3316,outdoors,Seattle WA
+SFO01,Levi's Stadium,,37.4030,-121.9700,outdoors,Santa Clara CA
+TAM00,Raymond James Stadium,,27.9759,-82.5033,outdoors,Tampa FL
+VEG00,Allegiant Stadium,,36.0909,-115.1833,dome,Las Vegas NV
+WAS00,Northwest Stadium,,38.9078,-76.8645,outdoors,Landover MD

@@ -1,0 +1,45 @@
+# Phase 4 frozen bookmaker configuration (Amendment A1, approved Oct 15 2026).
+# Changing anything here requires John's explicit approval recorded as a new spec amendment.
+# Source of NY license status: NY State Gaming Commission sports wagering page (checked Oct 15 2026).
+# This is a data-labeling rule, not legal advice.
+version: phase4_books_v1
+frozen_on: "2026-10-15"
+
+# Exact Odds API request list: 10 books = 1 credit per totals pull.
+request_bookmakers:
+  - draftkings
+  - fanduel
+  - betmgm
+  - betrivers
+  - espnbet
+  - ballybet
+  - pinnacle
+  - betonlineag
+  - lowvig
+  - bovada
+
+groups:
+  ny_actionable:          # returned on plan AND NY-licensed
+    - draftkings
+    - fanduel
+    - betmgm
+    - betrivers
+    - espnbet             # theScore Bet (formerly ESPN BET)
+    - ballybet            # Bally Bet: verified returned by the Oct 15 2026 validation pull (27 events)
+  reference_sharp:        # research / CLV reference only, never presented as usable in NY
+    - pinnacle
+  other_offshore:         # research only, never recommended for wagering
+    - betonlineag
+    - lowvig
+    - bovada              # continuity with the pre-spec snapshot (returned in validation pull)
+    - betus               # legacy pre-spec snapshot only
+    - mybookieag          # legacy pre-spec snapshot only
+
+not_available_on_plan:    # requested in the probe, not returned (paid-subscription only)
+  - williamhill_us        # Caesars
+  - fanatics
+
+probe:
+  run_date: "2026-10-15"
+  credits_spent: 2
+  record: docs/phase4/probe/BOOKMAKER_PROBE.md

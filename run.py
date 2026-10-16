@@ -12,12 +12,18 @@ the script changes into the repo root so relative data/ paths resolve.
       analyze it. --compare-to checks field-by-field against the frozen Phase 2A files.
   python run.py analyze PRED_CSV --label NAME [--out DIR]
       Bucket/side/season/calibration/trend analysis of any predictions file.
-  python run.py odds [--tag opener|current|pregame]
-      Take a per-book totals snapshot from The Odds API (needs ODDS_API_KEY in .env).
+  python run.py odds --kind KIND [--trigger T] [--targets JSON] [--no-weather]
+      Phase 4: one per-book totals snapshot (1 credit, frozen 10-book list) plus the forecast-weather
+      capture linked to it. KIND: tue_scheduled, thu_scheduled, sat_scheduled, sun_scheduled,
+      sun_night_scheduled, pregame_window, manual. Budget preflight refuses below the credit reserve.
+  python run.py schedule-gate --raw-dir DIR [--github-output FILE] [--force-kind KIND]
+      Phase 4: decide which scheduled snapshot kind (if any) this cron run should take (ET, DST-safe).
+  python run.py phase4-build [--out data/derived/phase4]
+      Phase 4: rebuild line-shopping, movement, CLV and forward-dataset tables from raw snapshots.
   python run.py predict [--season S --week W]
       Totals-only immutable weekly snapshot.
   python run.py record-results
-      Settle finished games into data/predictions/totals_ledger.csv with CLV.
+      Settle finished games into data/predictions/totals_ledger_v2.csv with line/price-correct CLV.
   python run.py ledger
       Print a ledger summary.
   python run.py test [--leakage-only]
@@ -93,13 +99,49 @@ def cmd_analyze(a):
 
 def cmd_odds(a):
     from src.nfl.data.ingest import load_cached_schedules
-    from src.nfl.data.odds_snapshot import take_snapshot
+    from src.nfl.data.odds_snapshot import PregameNotNeeded, take_snapshot
     sched = None
     try:
         sched = load_cached_schedules()
     except FileNotFoundError:
         logging.warning("No cached schedules; snapshot rows will not carry game_id. Run `python run.py data --schedules-only`.")
-    print(json.dumps(take_snapshot(tag=a.tag, schedules=sched)))
+    targets = json.loads(a.targets) if a.targets else None
+    try:
+        summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, targets=targets)
+    except PregameNotNeeded as e:
+        print(json.dumps({"skipped": True, "reason": str(e), "credits_spent": 0}))
+        return
+    games = summary.pop("games_for_weather", [])
+    if not a.no_weather and sched is not None:
+        # Weather never blocks the odds record: the paid odds snapshot is already saved at this point.
+        try:
+            from src.nfl.data.weather_forecast import capture_for_snapshot
+            summary["weather"] = capture_for_snapshot(summary["snapshot_id"], games, sched)
+        except Exception as e:  # noqa: BLE001
+            logging.error("Weather capture failed (odds snapshot kept): %s", type(e).__name__)
+            summary["weather"] = {"error": type(e).__name__}
+    print(json.dumps(summary, default=str))
+
+
+def cmd_schedule_gate(a):
+    from datetime import datetime, timezone
+    from src.nfl.market.timing import scheduled_gate
+    raw = Path(a.raw_dir)
+    names = sorted(p.name for p in raw.glob("totals_*.json")) if raw.exists() else []
+    if a.force_kind:
+        kind, reason = a.force_kind, "forced by workflow_dispatch"
+    else:
+        kind, reason = scheduled_gate(datetime.now(timezone.utc), names)
+    print(f"schedule gate: kind={kind} ({reason})")
+    if a.github_output:
+        with open(a.github_output, "a") as f:
+            f.write(f"kind={kind or 'none'}\n")
+
+
+def cmd_phase4_build(a):
+    from src.nfl.data.ingest import load_cached_schedules
+    from src.nfl.market.build import build_all
+    print(json.dumps(build_all(load_cached_schedules(), out_dir=Path(a.out)), indent=1, default=str))
 
 
 def cmd_predict(a):
@@ -196,7 +238,14 @@ def main():
     s.add_argument("--force", action="store_true"); s.add_argument("--schedules-only", action="store_true"); s.set_defaults(fn=cmd_data)
     s = sub.add_parser("baseline"); s.add_argument("--out", default="data/processed/baseline"); s.add_argument("--compare-to"); s.set_defaults(fn=cmd_baseline)
     s = sub.add_parser("analyze"); s.add_argument("pred_csv"); s.add_argument("--label", required=True); s.add_argument("--out", default="data/processed/analysis"); s.set_defaults(fn=cmd_analyze)
-    s = sub.add_parser("odds"); s.add_argument("--tag", default="current", choices=["opener", "current", "pregame"]); s.set_defaults(fn=cmd_odds)
+    from src.nfl.market.phase4_config import ALL_KINDS
+    kinds = [k for k in ALL_KINDS if k != "legacy_current"]
+    s = sub.add_parser("odds"); s.add_argument("--kind", required=True, choices=kinds)
+    s.add_argument("--trigger", default="manual", choices=["schedule", "pregame_planner", "manual", "validation"])
+    s.add_argument("--targets"); s.add_argument("--no-weather", action="store_true"); s.set_defaults(fn=cmd_odds)
+    s = sub.add_parser("schedule-gate"); s.add_argument("--raw-dir", required=True); s.add_argument("--github-output")
+    s.add_argument("--force-kind", choices=kinds); s.set_defaults(fn=cmd_schedule_gate)
+    s = sub.add_parser("phase4-build"); s.add_argument("--out", default="data/derived/phase4"); s.set_defaults(fn=cmd_phase4_build)
     s = sub.add_parser("predict"); s.add_argument("--season", type=int); s.add_argument("--week", type=int); s.set_defaults(fn=cmd_predict)
     s = sub.add_parser("record-results"); s.set_defaults(fn=cmd_record_results)
     s = sub.add_parser("ledger"); s.set_defaults(fn=cmd_ledger)

@@ -12,6 +12,12 @@ Pipeline:
      nflverse's schedule-embedded line and juice
   -> one immutable JSON snapshot: data/predictions/totals_<season>_wk<NN>_<UTC ts>.json
 
+Phase 4 (Oct 2026): market fields come from paired per-book quotes (data/odds/quotes/*.csv): every
+price is stored next to the exact line it was quoted at (median, canonical-line consensus prices,
+best lines with their own book and price, NY-actionable best lines, Pinnacle reference). The lean
+still uses market_total = median across all observed books, so projection, edge and lean logic
+are unchanged.
+
 The snapshot records a model LEAN (Over/Under by sign of edge) and sets
 recommended_units = 0. The Phase 2A baseline showed the lean carries no
 demonstrated edge; the decision layer (edge thresholds, EV, Kelly, confidence,
@@ -36,9 +42,12 @@ from pathlib import Path
 import pandas as pd
 
 from src.nfl.data.ingest import load_cached_pbp_for_epa, load_cached_schedules
-from src.nfl.data.odds_snapshot import load_game_summary
+from src.nfl.data.odds_snapshot import load_quotes
 from src.nfl.features.epa_features import add_trailing_epa_features
 from src.nfl.features.qb_features import add_trailing_qb_features
+from src.nfl.market.line_shopping import build_line_shopping
+from src.nfl.market.movement import apply_game_kickoff
+from src.nfl.market.views import latest_market_view
 from src.nfl.models.total.calibration import apply_shrink, load_calibration, snapshot_metadata
 from src.nfl.models.total.production import fit_and_predict_total
 from src.nfl.models.total.total_model import FEATURE_COLS, MODEL_VERSION, over_probability
@@ -56,25 +65,17 @@ def target_week(games: pd.DataFrame) -> tuple[int, int]:
     return int(row.season), int(row.week)
 
 
-def _market_for(game_id: str, sched: pd.Series, odds: pd.DataFrame | None, max_age_hours: float) -> dict:
-    """Latest odds snapshot for the game if fresh, else nflverse line/juice."""
-    if odds is not None and not odds.empty:
-        rows = odds[odds.game_id == game_id].sort_values("snapshot_dt")
-        if len(rows):
-            r = rows.iloc[-1]
-            age = (datetime.now(timezone.utc) - r.snapshot_dt.to_pydatetime()).total_seconds() / 3600
-            if age <= max_age_hours:
-                return {"market_total": float(r.market_median), "market_source": f"odds_snapshot:{r.snapshot_ts}",
-                        "n_books": int(r.n_books), "lowest_total": float(r.lowest_total), "highest_total": float(r.highest_total),
-                        "best_over_line": float(r.best_over_line), "best_over_price": int(r.best_over_price), "best_over_book": r.best_over_book,
-                        "best_under_line": float(r.best_under_line), "best_under_price": int(r.best_under_price), "best_under_book": r.best_under_book,
-                        "over_price": int(r.best_over_price), "under_price": int(r.best_under_price),
-                        "consensus_over_prob": float(r.consensus_over_prob)}
+def _market_for(game_id: str, sched: pd.Series, ls: pd.DataFrame | None, max_age_hours: float) -> dict:
+    """Latest Phase 4 odds snapshot for the game if fresh (paired fields only, see market/views.py),
+    else nflverse's schedule-embedded line with its own juice (a paired line/price from one source)."""
+    view = latest_market_view(ls, game_id, max_age_hours)
+    if view is not None:
+        return view
     tl = sched.get("total_line")
     if tl is None or pd.isna(tl):
         return {"market_total": None, "market_source": None}
     oo, uo = sched.get("over_odds"), sched.get("under_odds")
-    return {"market_total": float(tl), "market_source": "nflverse", "n_books": None,
+    return {"market_total": float(tl), "market_total_basis": "nflverse_total_line", "market_source": "nflverse", "n_books": None,
             "over_price": None if pd.isna(oo) else int(oo), "under_price": None if pd.isna(uo) else int(uo)}
 
 
@@ -128,13 +129,12 @@ def generate(season: int | None = None, week: int | None = None, pred_dir: Path 
     df["over_prob"] = over_probability(df.total_mean_pred, df.total_sigma_pred, df.total_line)
 
     slate = df[(df.season == season) & (df.week == week) & df.home_score.isna()].copy()
-    odds = load_game_summary()
-    if not odds.empty:
-        odds = odds[odds.game_id.notna()]
+    quotes = load_quotes()
+    ls = build_line_shopping(apply_game_kickoff(quotes, games)) if not quotes.empty else None
     records = []
     for row in slate.itertuples(index=False):
         r = row._asdict()
-        mkt = _market_for(r["game_id"], pd.Series(r), odds, odds_max_age_hours)
+        mkt = _market_for(r["game_id"], pd.Series(r), ls, odds_max_age_hours)
         proj = None if pd.isna(r["total_mean_pred"]) else round(float(r["total_mean_pred"]), 2)
         sigma = None if pd.isna(r["total_sigma_pred"]) else round(float(r["total_sigma_pred"]), 2)
         edge = lean = p_over = None

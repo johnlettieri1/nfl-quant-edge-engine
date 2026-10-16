@@ -44,7 +44,7 @@ def fixture(monkeypatch):
     games.loc[last, "week"] = 500
     monkeypatch.setattr(pt, "load_cached_schedules", lambda: games.copy())
     monkeypatch.setattr(pt, "load_cached_pbp_for_epa", lambda: pbp.copy())
-    monkeypatch.setattr(pt, "load_game_summary", lambda: pd.DataFrame())
+    monkeypatch.setattr(pt, "load_quotes", lambda: pd.DataFrame())  # Phase 4: paired quotes replace game_summary
     return games, pbp
 
 
@@ -147,15 +147,28 @@ def test_writes_only_under_predictions_and_md_is_labeled(fixture, tmp_path):
 
 
 def test_weekly_workflow_records_guard_unchanged():
+    # Phase 4 moved the inline shell guard into src/nfl/ops/records_guard.py (tested in
+    # tests/unit/test_phase4_records_guard.py). The protections this test pins are unchanged:
+    # both record-writing workflows run the guard, copy only data dirs, and push only to records.
+    from src.nfl.ops.records_guard import ALLOWED_PREFIXES, APPEND_ONLY, evaluate
+    for name in ("weekly.yml", "pregame.yml"):
+        wf = (ROOT / ".github" / "workflows" / name).read_text()
+        assert "python code/src/nfl/ops/records_guard.py --repo records" in wf
+        assert "cp -a code/data/odds/. records/data/odds/" in wf
+        pushes = re.findall(r"git push[^\n]*", wf)
+        # exact refspec; the Phase 4 retry loop wraps the same push as `if git push ...; then exit 0; fi`
+        assert pushes and all(re.fullmatch(r"git push origin HEAD:refs/heads/records(; then exit 0; fi)?", p.strip())
+                              for p in pushes)
+        assert not re.search(r"git push[^\n]*(--force|-f\b)", wf) and "refs/heads/main" not in wf
     wf = (ROOT / ".github" / "workflows" / "weekly.yml").read_text()
-    assert "grep -v -E '^data/(odds|predictions)/'" in wf
-    assert "cp -a code/data/odds/. records/data/odds/" in wf and "cp -a code/data/predictions/. records/data/predictions/" in wf
-    pushes = re.findall(r"git push[^\n]*", wf)
-    assert pushes and all(p.strip() == "git push origin HEAD:refs/heads/records" for p in pushes)
-    # the new .md summary is a brand-new file under data/predictions: admitted by the path guard and
-    # not one of the append-only names, so any later modification of it is refused as an immutable record
-    assert re.match(r"^data/(odds|predictions)/", "data/predictions/totals_2026_wk07_20261018T131000Z.md")
-    assert "data/predictions/totals_2026_wk07_20261018T131000Z.md" not in wf
+    assert "cp -a code/data/predictions/. records/data/predictions/" in wf
+    assert ALLOWED_PREFIXES == ("data/odds/", "data/predictions/", "data/weather/")
+    # the .md summary is a brand-new file under data/predictions: admitted when added, and refused as an
+    # immutable record if it is ever modified later
+    md = "data/predictions/totals_2026_wk07_20261018T131000Z.md"
+    assert md not in APPEND_ONLY
+    assert evaluate([("A", md)], lambda p: b"", lambda p: b"x") == []
+    assert evaluate([("M", md)], lambda p: b"x", lambda p: b"y") != []
 
 
 # ----------------------------------------------------------------------------- amendment: version guard, timing scope
