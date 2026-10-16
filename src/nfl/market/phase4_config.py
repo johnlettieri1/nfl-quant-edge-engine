@@ -41,9 +41,12 @@ PREGAME_LATE_MIN = 5               # one late attempt allowed down to T-5, never
 PREGAME_MAX_ATTEMPTS_PER_SLOT = 2
 PREGAME_ATTEMPT_LOOKBACK_MIN = 40  # snapshots within 40 min before a kickoff count as attempts for it
 
+# ---- Kickoff resolution -----------------------------------------------------------------------
+KICKOFF_AGREE_TOL_MIN = 5          # Odds API and nflverse kickoffs within 5 min = agreed (verified)
+
 # ---- Close-quality rule ---------------------------------------------------------------------
 CLOSE_QUALITY_MAX_MIN = 30         # last_observed_pregame taken 0-30 min before kickoff (strictly before)
-CLOSE_QUALITY_MIN_BOOKS = 5
+CLOSE_QUALITY_MIN_BOOKS = 5        # and the game's kickoff must be RESOLVED (both sources agree)
 
 # ---- Line shopping / CLV --------------------------------------------------------------------
 STALE_QUOTE_MIN = 360

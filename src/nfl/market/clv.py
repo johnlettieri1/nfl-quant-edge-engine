@@ -28,7 +28,8 @@ from src.nfl.market.timing import close_quality, parse_utc
 VARIANTS = (("best_available_ny", NY_ACTIONABLE), ("best_available_all", "all_observed"), ("consensus_all", "all_observed"))
 CLV_FIELDS = ["game_key", "game_id", "side", "variant", "action_snapshot_id", "action_ts", "action_kind",
               "action_minutes_to_kickoff", "line_taken", "price_taken", "book_taken", "book_taken_group",
-              "ref_snapshot_id", "ref_ts", "ref_minutes_to_kickoff", "ref_n_books", "ref_close_quality",
+              "ref_snapshot_id", "ref_ts", "ref_minutes_to_kickoff", "ref_n_books", "ref_close_quality", "kickoff_status",
+              "kickoff_source",
               "ref_canonical_line", "ref_median_line", "ref_ny_canonical_line", "ref_book_line",
               "line_clv", "line_clv_vs_median", "line_clv_vs_ny_canonical", "line_clv_vs_ref_book",
               "price_clv_same_book", "price_clv_same_line_consensus", "fair_ev_vs_ref",
@@ -109,6 +110,7 @@ def build_clv_events(quotes: pd.DataFrame) -> pd.DataFrame:
         rref = r[r.book.map(group_of) == REFERENCE_SHARP]
         ref_book_line = float(rref.total_line.iloc[0]) if len(rref) else None
         r_mtk = float(rsnap.minutes_to_kickoff_game)
+        k_status, k_source = rsnap.get("kickoff_game_status"), rsnap.get("kickoff_game_source")
         for s in snaps.iloc[:-1].itertuples():
             sq = g[g.snapshot_id == s.snapshot_id]
             s_can = canonical_line(list(sq.total_line))
@@ -126,7 +128,8 @@ def build_clv_events(quotes: pd.DataFrame) -> pd.DataFrame:
                         "book_taken_group": group_of(t["book"]) if t["book"] else None,
                         "ref_snapshot_id": rsnap.snapshot_id, "ref_ts": rsnap.snapshot_ts_utc,
                         "ref_minutes_to_kickoff": r_mtk, "ref_n_books": int(len(r)),
-                        "ref_close_quality": close_quality(r_mtk, int(len(r))),
+                        "ref_close_quality": close_quality(r_mtk, int(len(r)), k_status),
+                        "kickoff_status": k_status, "kickoff_source": k_source,
                         "ref_canonical_line": ref_can, "ref_median_line": ref_med, "ref_ny_canonical_line": ref_ny,
                         "ref_book_line": ref_book_line,
                         "line_clv": line_clv(side, t["line"], ref_can),

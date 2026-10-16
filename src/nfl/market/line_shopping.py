@@ -109,7 +109,10 @@ def build_line_shopping(quotes: pd.DataFrame) -> pd.DataFrame:
         row = {"snapshot_id": sid, "snapshot_ts_utc": first.snapshot_ts_utc, "snapshot_kind": first.snapshot_kind,
                "game_key": gk, "game_id": first.game_id, "home_team": first.home_team, "away_team": first.away_team,
                "kickoff_utc_resolved": first.get("kickoff_game", first.kickoff_utc_resolved),
-               "minutes_to_kickoff": first.get("minutes_to_kickoff_game", first.minutes_to_kickoff)}
+               "minutes_to_kickoff": first.get("minutes_to_kickoff_game", first.minutes_to_kickoff),
+               "kickoff_game_source": first.get("kickoff_game_source"), "kickoff_game_status": first.get("kickoff_game_status"),
+               "kickoff_game_conflict_minutes": first.get("kickoff_game_conflict_minutes"),
+               "kickoff_changed": first.get("kickoff_changed")}
         for prefix, scope in (("ny_", NY_ACTIONABLE), ("all_", "all_observed")):
             row.update({prefix + k: v for k, v in shop_metrics(scoped(g, scope)).items()})
         row.update(reference_metrics(g))

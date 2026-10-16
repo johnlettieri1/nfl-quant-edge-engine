@@ -130,7 +130,7 @@ def generate(season: int | None = None, week: int | None = None, pred_dir: Path 
 
     slate = df[(df.season == season) & (df.week == week) & df.home_score.isna()].copy()
     quotes = load_quotes()
-    ls = build_line_shopping(apply_game_kickoff(quotes)) if not quotes.empty else None
+    ls = build_line_shopping(apply_game_kickoff(quotes, games)) if not quotes.empty else None
     records = []
     for row in slate.itertuples(index=False):
         r = row._asdict()

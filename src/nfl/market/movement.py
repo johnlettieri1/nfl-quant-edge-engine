@@ -11,26 +11,60 @@ import json
 import pandas as pd
 
 from src.nfl.market.line_shopping import game_key
-from src.nfl.market.timing import close_quality, minutes_to_kickoff, parse_utc
+from src.nfl.market import phase4_config as C
+from src.nfl.market.timing import (close_quality, minutes_to_kickoff, nflverse_kickoff_utc, parse_utc,
+                                   resolve_game_kickoff)
 
 
-def apply_game_kickoff(quotes: pd.DataFrame) -> pd.DataFrame:
-    """One kickoff per game: the resolved kickoff carried by the game's LATEST snapshot (which is
-    already min(latest Odds API commence_time, nflverse kickoff)). Pregame flags and minutes are then
-    recomputed against that single kickoff, so a moved game can never let a post-kickoff snapshot
-    count as pregame."""
+def _nflverse_for(game_id, schedules: pd.DataFrame | None, fallback):
+    if schedules is not None and isinstance(game_id, str):
+        row = schedules[schedules.game_id == game_id]
+        if len(row) == 1:
+            r = row.iloc[0]
+            return nflverse_kickoff_utc(str(r.gameday)[:10], None if pd.isna(r.gametime) else str(r.gametime))
+    if fallback is not None and not (isinstance(fallback, float) and fallback != fallback) and str(fallback) not in ("", "nan", "None"):
+        return parse_utc(fallback)
+    return None
+
+
+def apply_game_kickoff(quotes: pd.DataFrame, schedules: pd.DataFrame | None = None) -> pd.DataFrame:
+    """One kickoff per game, under the documented policy (timing.resolve_game_kickoff):
+
+      odds_latest = commence_time reported by the game's MOST RECENT snapshot
+      nflverse    = scheduled kickoff from the CURRENT schedule (else the value stored at capture)
+      agreed within 5 min -> resolved; otherwise unresolved and the EARLIER time is used.
+
+    A snapshot counts as pregame only if it is strictly before the game's kickoff AND strictly before
+    the commence_time that snapshot itself reported. The second condition means an observation taken
+    after the then-scheduled start (a game suspended or postponed after it began) never becomes pregame,
+    while observations of a legitimately postponed game taken while the new time was posted are kept.
+    Adds kickoff_game, kickoff_game_source, kickoff_game_status, kickoff_game_conflict_minutes,
+    kickoff_changed (the reported commence_time moved across snapshots by more than the tolerance),
+    is_pregame_game, minutes_to_kickoff_game."""
+    cols = ["game_key", "kickoff_game", "kickoff_game_source", "kickoff_game_status", "kickoff_game_conflict_minutes",
+            "kickoff_changed", "is_pregame_game", "minutes_to_kickoff_game"]
     if quotes.empty:
-        return quotes.assign(game_key=[], kickoff_game=[], is_pregame_game=[], minutes_to_kickoff_game=[])
+        return quotes.assign(**{c: [] for c in cols})
     q = quotes.copy()
     q["game_key"] = q.apply(game_key, axis=1)
     q["_ts"] = q.snapshot_ts_utc.map(parse_utc)
-    latest = q.sort_values("_ts").groupby("game_key").tail(1).set_index("game_key").kickoff_utc_resolved
-    k = latest.map(parse_utc)
-    q["kickoff_game"] = q.game_key.map(k)
-    q["is_pregame_game"] = q._ts < q.kickoff_game
+    q["_commence"] = q.commence_time_utc_as_reported.map(parse_utc)
+    info = {}
+    for gk, g in q.groupby("game_key"):
+        last = g.sort_values("_ts").iloc[-1]
+        nfl_fb = last.get("kickoff_nflverse_utc") if "kickoff_nflverse_utc" in g else None
+        kr = resolve_game_kickoff(last._commence, _nflverse_for(last.game_id, schedules, nfl_fb))
+        spread_min = (g._commence.max() - g._commence.min()).total_seconds() / 60.0
+        info[gk] = (kr["kickoff"], kr["source"], kr["status"], kr["conflict_minutes"], spread_min > C.KICKOFF_AGREE_TOL_MIN)
+    q["kickoff_game"] = q.game_key.map(lambda k: info[k][0])
+    q["kickoff_game_source"] = q.game_key.map(lambda k: info[k][1])
+    q["kickoff_game_status"] = q.game_key.map(lambda k: info[k][2])
+    q["kickoff_game_conflict_minutes"] = q.game_key.map(lambda k: info[k][3])
+    q["kickoff_changed"] = q.game_key.map(lambda k: info[k][4])
+    q["is_pregame_game"] = (q._ts < q.kickoff_game) & (q._ts < q._commence)
     q["minutes_to_kickoff_game"] = [round(minutes_to_kickoff(a, b), 1) for a, b in zip(q._ts, q.kickoff_game)]
     q["kickoff_game"] = q.kickoff_game.map(lambda d: d.isoformat())
-    return q.drop(columns="_ts")
+    return q.drop(columns=["_ts", "_commence"])
 
 
 def pregame_snapshots(ls: pd.DataFrame, gk: str) -> pd.DataFrame:
@@ -67,7 +101,10 @@ def build_movement(ls: pd.DataFrame, quotes: pd.DataFrame, finals: dict | None =
             "last_observed_pregame_kind": last.snapshot_kind, "last_observed_pregame_minutes_to_kickoff": mtk_last,
             "last_observed_pregame_median": last.all_median_total, "last_observed_pregame_canonical": last.all_canonical_total,
             "last_observed_pregame_n_books": int(last.all_n_books),
-            "close_quality": close_quality(mtk_last, int(last.all_n_books)),
+            "kickoff_source": first.get("kickoff_game_source"), "kickoff_status": first.get("kickoff_game_status"),
+            "kickoff_conflict_minutes": first.get("kickoff_game_conflict_minutes"),
+            "kickoff_changed": first.get("kickoff_changed"),
+            "close_quality": close_quality(mtk_last, int(last.all_n_books), first.get("kickoff_game_status")),
             "move_direction": "up" if move > 0 else "down" if move < 0 else "flat", "move_abs_pts": abs(move),
             "move_signed_pts": move,
             "max_total": float(g.all_canonical_total.max()), "max_total_ts": g.loc[imax, "snapshot_ts_utc"],

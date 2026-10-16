@@ -115,7 +115,7 @@ def record_results(schedules: pd.DataFrame, pred_dir: Path = PRED_DIR, ledger: P
     schedules = schedules[schedules.season >= FORWARD_SEASON_MIN]   # Phase 4 is 2026+ only (holdout sealed)
     by_id = schedules.set_index("game_id")
     done = _already(ledger)
-    quotes = apply_game_kickoff(quotes_from_raw(odds_dir, schedules))
+    quotes = apply_game_kickoff(quotes_from_raw(odds_dir, schedules), schedules)
     ev = build_clv_events(quotes)
     ls = build_line_shopping(quotes) if not quotes.empty else pd.DataFrame()
     mv = build_movement(ls, quotes) if not ls.empty else pd.DataFrame()

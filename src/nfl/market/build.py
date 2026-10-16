@@ -73,7 +73,7 @@ def model_fields_for(preds: pd.DataFrame, game_id: str, snapshot_id: str, snapsh
 def build_all(schedules: pd.DataFrame, odds_dir: Path = ODDS_DIR, weather_dir: Path = WEATHER_DIR,
               pred_dir: Path = PRED_DIR, out_dir: Path = OUT_DIR) -> dict:
     sched = forward_schedules(schedules)
-    quotes = apply_game_kickoff(quotes_from_raw(odds_dir, sched))
+    quotes = apply_game_kickoff(quotes_from_raw(odds_dir, sched), sched)
     assert_forward_only(quotes.game_id)
     ls = build_line_shopping(quotes)
     finals = {r.game_id: float(r.home_score + r.away_score) for r in sched.itertuples()
