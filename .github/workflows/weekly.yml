@@ -142,6 +142,8 @@ jobs:
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: |
+          # never-published temp files from an interrupted crash-safe write are not records
+          find records/data -name '.tmp-*' -type f -print -delete
           git -C records add -A
           python code/src/nfl/ops/records_guard.py --repo records
           git -C records diff --cached --stat

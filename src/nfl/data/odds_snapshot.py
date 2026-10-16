@@ -34,6 +34,7 @@ import io
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -43,9 +44,9 @@ from src.nfl.data.odds_api import fetch_balance, fetch_totals_raw
 from src.nfl.data.team_mapping import to_nflverse_code
 from src.nfl.market import phase4_config as C
 from src.nfl.market.books import request_bookmakers
-from src.nfl.market.timing import (ET, UTC, et_date, is_pregame, minutes_to_kickoff, nflverse_kickoff_utc,
-                                   parse_raw_name, parse_utc, plan_pregame, pulls_this_week, resolve_kickoff,
-                                   snapshot_ts)
+from src.nfl.market.timing import (ET, UTC, coverage_from_quote_csvs, et_date, is_pregame, minutes_to_kickoff,
+                                   nflverse_kickoff_utc, parse_raw_name, parse_utc, plan_pregame, pulls_this_week,
+                                   quote_files, resolve_game_kickoff, snapshot_ts)
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,8 @@ QUOTES_FILE = "quotes_v2.csv"          # legacy combined file (validation snapsh
 QUOTES_DIR = "quotes"
 HALT_PREFIX = "HALT_"
 QUOTE_FIELDS = ["snapshot_id", "snapshot_ts_utc", "snapshot_kind", "event_id", "game_id", "match_method",
-                "home_team", "away_team", "commence_time_utc_as_reported", "kickoff_utc_resolved", "kickoff_et",
+                "home_team", "away_team", "commence_time_utc_as_reported", "kickoff_nflverse_utc", "kickoff_utc_resolved",
+                "kickoff_source", "kickoff_status", "kickoff_conflict_minutes", "kickoff_et",
                 "minutes_to_kickoff", "is_pregame", "book", "total_line", "over_price", "under_price",
                 "book_last_update", "quote_age_minutes", "raw_file", "response_sha256"]
 
@@ -115,7 +117,9 @@ def parse_quotes(raw_games: list[dict], snapshot_id: str, snapshot_dt: datetime,
             continue
         game_id, method = match_game_id(home, away, g["commence_time"], schedules)
         commence = parse_utc(g["commence_time"])
-        kickoff = resolve_kickoff(commence, _nflverse_kickoff(game_id, schedules))
+        nfl_k = _nflverse_kickoff(game_id, schedules)
+        kr = resolve_game_kickoff(commence, nfl_k)
+        kickoff = kr["kickoff"]
         mtk = round(minutes_to_kickoff(snapshot_dt, kickoff), 1)
         for book in g.get("bookmakers", []):
             for market in book.get("markets", []):
@@ -134,7 +138,10 @@ def parse_quotes(raw_games: list[dict], snapshot_id: str, snapshot_dt: datetime,
                     "event_id": g["id"], "game_id": game_id, "match_method": method,
                     "home_team": home, "away_team": away,
                     "commence_time_utc_as_reported": commence.isoformat(),
+                    "kickoff_nflverse_utc": nfl_k.isoformat() if nfl_k else None,
                     "kickoff_utc_resolved": kickoff.isoformat(),
+                    "kickoff_source": kr["source"], "kickoff_status": kr["status"],
+                    "kickoff_conflict_minutes": kr["conflict_minutes"],
                     "kickoff_et": kickoff.astimezone(ET).isoformat(),
                     "minutes_to_kickoff": mtk, "is_pregame": is_pregame(snapshot_dt, kickoff),
                     "book": book["key"], "total_line": float(over["point"]),
@@ -147,50 +154,96 @@ def parse_quotes(raw_games: list[dict], snapshot_id: str, snapshot_dt: datetime,
 
 # ---- immutable / atomic writes --------------------------------------------------------------
 
-def write_exclusive(path: Path, data: bytes) -> Path:
-    """Exclusive create. On a name collision the data is kept under a -dupN suffix (a paid
-    response is never dropped) and nothing existing is overwritten."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    cand, n = path, 0
-    while True:
+TMP_PREFIX = ".tmp-"
+
+
+def _fsync_dir(d: Path) -> None:
+    try:
+        fd = os.open(d, os.O_RDONLY)
+    except OSError:      # directories cannot be opened on Windows; the file itself is already fsynced
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def _write_tmp(directory: Path, name: str, data: bytes) -> Path:
+    """Write the COMPLETE payload to a hidden temp file in the destination directory and fsync it."""
+    tmp = directory / f"{TMP_PREFIX}{name}-{uuid.uuid4().hex}"
+    try:
+        with open(tmp, "xb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+    except BaseException:
         try:
-            with open(cand, "xb") as f:
-                f.write(data)
-                f.flush()
-                os.fsync(f.fileno())
-            return cand
-        except FileExistsError:
-            n += 1
-            cand = path.with_name(f"{path.stem}-dup{n}{path.suffix}")
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+    return tmp
+
+
+def write_exclusive(path: Path, data: bytes) -> Path:
+    """Crash-safe, never-overwriting publication of an immutable record.
+
+    1. write the complete bytes to a hidden temp file (.tmp-...) in the same directory, flush, fsync;
+    2. publish with os.link(temp, final): atomic, and it FAILS if the final name exists, so an existing
+       record is never overwritten;
+    3. on a name collision the data is kept under a -dupN suffix (a paid response is never dropped);
+    4. remove the temp name and fsync the directory.
+    A crash at any point leaves either no final file or the complete final file, never a partial one.
+    A leftover temp file is never read (readers glob only published names), the workflows delete it
+    before committing, and the records guard rejects it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _write_tmp(path.parent, path.name, data)
+    try:
+        cand, n = path, 0
+        while True:
+            try:
+                os.link(tmp, cand)
+                break
+            except FileExistsError:
+                n += 1
+                cand = path.with_name(f"{path.stem}-dup{n}{path.suffix}")
+        _fsync_dir(path.parent)
+        return cand
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
 
 
 def append_rows_atomic(path: Path, rows: list[dict], fields: list[str]) -> int:
-    """Append-only CSV write as a single buffered write. Refuses a header mismatch and refuses
-    to append after a torn (newline-less) final row instead of silently gluing rows together."""
+    """Append-only CSV update published atomically: the full new content (old bytes unchanged + new rows)
+    is written to a temp file, fsynced, then swapped in with os.replace, so a crash never leaves a torn
+    row. Refuses a header mismatch and refuses to extend a file whose final row is already torn."""
     if not rows:
         return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old = path.read_bytes() if path.exists() else b""
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and path.stat().st_size > 0:
-        with open(path, "rb") as f:
-            header = f.readline().decode("utf-8").rstrip("\r\n")
-            f.seek(-1, os.SEEK_END)
-            last = f.read(1)
+    if old:
+        header = old.split(b"\n", 1)[0].decode("utf-8").rstrip("\r")
         if header != ",".join(fields):
             raise RuntimeError(f"{path}: header mismatch; refusing to append")
-        if last != b"\n":
+        if not old.endswith(b"\n"):
             raise RuntimeError(f"{path}: final row is torn (no trailing newline); refusing to append")
     else:
         w.writeheader()
     w.writerows(rows)
-    data = buf.getvalue().encode("utf-8")
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    tmp = _write_tmp(path.parent, path.name, old + buf.getvalue().encode("utf-8"))
     try:
-        os.write(fd, data)
-        os.fsync(fd)
+        os.replace(tmp, path)
+        _fsync_dir(path.parent)
     finally:
-        os.close(fd)
+        if tmp.exists():
+            tmp.unlink()
     return len(rows)
 
 
@@ -215,18 +268,23 @@ def _csv_bytes(rows: list[dict], fields: list[str]) -> bytes:
 # ---- the snapshot ---------------------------------------------------------------------------
 
 def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | None = None,
-                  odds_dir: Path = ODDS_DIR, target_kickoffs: list[str] | None = None,
+                  odds_dir: Path = ODDS_DIR, targets: list[dict] | None = None,
                   now: datetime | None = None, preflight: bool = True) -> dict:
     """Budget preflight (free) -> one paid pull -> raw v2 envelope -> paired quotes rows."""
     if kind not in C.ALL_KINDS or kind == "legacy_current":
         raise ValueError(f"invalid snapshot kind {kind}")
     names = raw_names(odds_dir)
     now = now or datetime.now(UTC)
-    if kind == "pregame_window" and target_kickoffs:
+    if kind == "pregame_window":
         # Re-check immediately before paying: the gate decided minutes ago and this job may have
-        # waited in the queue. Uses the records restored into odds_dir, so a pull that already
-        # covered the slot (or a kickoff that has passed) stops here without spending a credit.
-        d = plan_pregame(now, [parse_utc(k) for k in target_kickoffs], names)
+        # waited in the queue. Uses the records restored into odds_dir, game by game: a game another
+        # pull already QUOTED in its window, or whose kickoff is past or inside T-5, is dropped here,
+        # and if nothing is left no credit is spent.
+        if not targets:
+            raise PregameNotNeeded("no target games given")
+        events = [(t["event_id"], parse_utc(t["kickoff"])) for t in targets]
+        cov = coverage_from_quote_csvs(quote_files(odds_dir))
+        d = plan_pregame(now, events, names, coverage=cov)
         if not d.pull:
             raise PregameNotNeeded(d.reason)
     balance = None
@@ -250,7 +308,7 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
     envelope = {"schema_version": RAW_SCHEMA, "snapshot_id": f"{ts}_{kind}", "snapshot_kind": kind, "trigger": trigger,
                 **res, "preflight_balance": balance, "spec_version": C.SPEC_VERSION,
                 "code_sha": os.environ.get("GITHUB_SHA"), "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
-                "target_kickoffs": target_kickoffs or [], "response_sha256": sha,
+                "targets": targets or [], "response_sha256": sha,
                 "response_body": body.decode("utf-8", "replace")}
     raw_path = write_exclusive(odds_dir / "raw" / f"totals_{ts}_{kind}.json",
                                json.dumps(envelope, indent=1).encode("utf-8"))

@@ -10,6 +10,7 @@ Rules:
   4. totals_index.json is the single mutable index.
   5. Everything else that already exists is immutable: no modification, no deletion.
   6. No staged content may contain an API key.
+  7. No unpublished temp file (basename starting ".tmp-", left by an interrupted crash-safe write).
 """
 from __future__ import annotations
 
@@ -36,6 +37,9 @@ def evaluate(changes: list[tuple[str, str]], read_old: Callable[[str], bytes], r
         st = status[0]
         if not path.startswith(ALLOWED_PREFIXES):
             bad.append(f"path outside records data dirs: {path}")
+            continue
+        if path.rsplit("/", 1)[-1].startswith(".tmp-"):
+            bad.append(f"unpublished temp file (interrupted write): {path}")
             continue
         if st == "A":
             pass

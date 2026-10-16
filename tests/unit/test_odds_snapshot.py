@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import pathlib
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -178,17 +180,108 @@ def test_missing_balance_header_fails_closed(tmp_path, api, monkeypatch):
     assert api.calls == 0
 
 
-def test_pregame_pull_rechecks_before_paying(tmp_path, api):
-    kick = "2026-10-18T17:00:00+00:00"
-    late = datetime(2026, 10, 18, 17, 1, tzinfo=timezone.utc)       # queued job runs after kickoff
-    with pytest.raises(O.PregameNotNeeded):
-        O.take_snapshot("pregame_window", schedules=SCHED, odds_dir=tmp_path, target_kickoffs=[kick], now=late)
+KICK = "2026-10-18T17:00:00+00:00"
+TARGET = [{"event_id": "evt1", "kickoff": KICK}]
+
+
+def _quotes_file(odds_dir, ts, rows):
+    q = odds_dir / "quotes"; q.mkdir(parents=True, exist_ok=True)
+    body = "snapshot_ts_utc,event_id,book,total_line,over_price,under_price\n" + "".join(
+        f"{ts},{eid},{book},42.5,-110,-110\n" for eid, book in rows)
+    (q / f"quotes_{ts.replace(':', '').replace('-', '')[:15]}Z_pregame_window.csv").write_text(body)
+
+
+def test_delayed_pregame_job_never_pays_after_kickoff(tmp_path, api):
+    for late in (datetime(2026, 10, 18, 17, 0, tzinfo=timezone.utc),       # exactly at kickoff
+                 datetime(2026, 10, 18, 17, 1, tzinfo=timezone.utc),       # after kickoff
+                 datetime(2026, 10, 18, 16, 57, tzinfo=timezone.utc)):     # inside T-5
+        with pytest.raises(O.PregameNotNeeded):
+            O.take_snapshot("pregame_window", schedules=SCHED, odds_dir=tmp_path, targets=TARGET, now=late)
+    assert api.calls == 0 and not (tmp_path / "raw").exists()
+
+
+def test_recheck_skips_when_the_game_was_already_quoted_in_window(tmp_path, api):
     raw = tmp_path / "raw"; raw.mkdir()
-    (raw / "totals_20261018T164000Z_pregame_window.json").write_text("{}")   # another pull already covered T-20
+    (raw / "totals_20261018T164000Z_pregame_window.json").write_text("{}")
+    _quotes_file(tmp_path, "2026-10-18T16:40:00+00:00", [("evt1", "draftkings"), ("evt1", "fanduel")])
     with pytest.raises(O.PregameNotNeeded):
-        O.take_snapshot("pregame_window", schedules=SCHED, odds_dir=tmp_path, target_kickoffs=[kick],
+        O.take_snapshot("pregame_window", schedules=SCHED, odds_dir=tmp_path, targets=TARGET,
                         now=datetime(2026, 10, 18, 16, 45, tzinfo=timezone.utc))
     assert api.calls == 0
+
+
+def test_recheck_pays_when_the_snapshot_did_not_quote_this_game(tmp_path, api):
+    raw = tmp_path / "raw"; raw.mkdir()
+    (raw / "totals_20261018T164000Z_pregame_window.json").write_text("{}")
+    _quotes_file(tmp_path, "2026-10-18T16:40:00+00:00", [("evtOTHER", "draftkings")])
+    s = O.take_snapshot("pregame_window", schedules=SCHED, odds_dir=tmp_path, targets=TARGET,
+                        now=datetime(2026, 10, 18, 16, 45, tzinfo=timezone.utc))
+    assert api.calls == 1 and s["quote_rows"] == 6
+
+
+def test_pregame_without_targets_never_pays(tmp_path, api):
+    with pytest.raises(O.PregameNotNeeded):
+        O.take_snapshot("pregame_window", schedules=SCHED, odds_dir=tmp_path, targets=None, now=SNAP_DT)
+    assert api.calls == 0
+
+
+# ---- crash-safe immutable writes ----------------------------------------------------------------
+
+def test_existing_records_cannot_be_overwritten(tmp_path):
+    p = tmp_path / "raw" / "totals_x.json"
+    O.write_exclusive(p, b"original")
+    for i in range(3):
+        O.write_exclusive(p, f"other{i}".encode())
+    assert p.read_bytes() == b"original"
+    assert sorted(x.name for x in p.parent.iterdir()) == ["totals_x-dup1.json", "totals_x-dup2.json", "totals_x-dup3.json", "totals_x.json"]
+
+
+def test_interrupted_write_never_exposes_a_partial_file(tmp_path, monkeypatch):
+    p = tmp_path / "raw" / "totals_y.json"
+    real_fsync = os.fsync
+    def boom(fd):
+        raise OSError("simulated power loss during fsync")
+    monkeypatch.setattr(O.os, "fsync", boom)
+    with pytest.raises(OSError):
+        O.write_exclusive(p, b"x" * 100_000)
+    monkeypatch.setattr(O.os, "fsync", real_fsync)
+    assert not p.exists()                                       # no final file at all
+    assert list(p.parent.iterdir()) == []                       # and no partial temp file either
+
+
+def test_crash_before_publish_leaves_no_final_file(tmp_path):
+    """A real process that dies (os._exit) after writing the temp file but before publishing."""
+    import subprocess, sys
+    code = (f"import os, sys; sys.path.insert(0, {str(pathlib.Path.cwd())!r}); from src.nfl.data import odds_snapshot as O; "
+            "O.os.link = lambda a, b: os._exit(9); "
+            f"O.write_exclusive(__import__('pathlib').Path({str(tmp_path / 'raw' / 'totals_z.json')!r}), b'payload' * 1000)")
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True)
+    assert r.returncode == 9
+    files = sorted(x.name for x in (tmp_path / "raw").iterdir())
+    assert "totals_z.json" not in files and len(files) == 1 and files[0].startswith(".tmp-")
+    assert O.raw_names(tmp_path) == []                          # readers never see the leftover temp file
+    from src.nfl.ops.records_guard import evaluate
+    leftover = f"data/odds/raw/{files[0]}"
+    assert evaluate([("A", leftover)], lambda _: b"", lambda _: b"x")   # guard rejects it
+
+
+def test_append_rows_atomic_is_crash_safe(tmp_path, monkeypatch):
+    p = tmp_path / "ledger.csv"
+    O.append_rows_atomic(p, [{"a": 1, "b": 2}], ["a", "b"])
+    before = p.read_bytes()
+    monkeypatch.setattr(O.os, "replace", lambda a, b: (_ for _ in ()).throw(OSError("crash")))
+    with pytest.raises(OSError):
+        O.append_rows_atomic(p, [{"a": 3, "b": 4}], ["a", "b"])
+    assert p.read_bytes() == before and [x.name for x in tmp_path.iterdir()] == ["ledger.csv"]
+
+
+def test_response_hash_still_verifies_after_atomic_publish(tmp_path, api):
+    O.take_snapshot("thu_scheduled", "schedule", SCHED, odds_dir=tmp_path, now=SNAP_DT)
+    env = json.loads((tmp_path / "raw" / "totals_20261016T120000Z_thu_scheduled.json").read_text())
+    assert hashlib.sha256(env["response_body"].encode()).hexdigest() == env["response_sha256"]
+    snap = next(O.iter_raw_snapshots(tmp_path))
+    assert snap["hash_ok"] is True
+    assert not [x for x in tmp_path.rglob(".tmp-*")]            # no temp files left after success
 
 
 def test_legacy_file_is_not_counted_as_a_phase4_pull():

@@ -107,7 +107,7 @@ def cmd_odds(a):
         logging.warning("No cached schedules; snapshot rows will not carry game_id. Run `python run.py data --schedules-only`.")
     targets = json.loads(a.targets) if a.targets else None
     try:
-        summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, target_kickoffs=targets)
+        summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, targets=targets)
     except PregameNotNeeded as e:
         print(json.dumps({"skipped": True, "reason": str(e), "credits_spent": 0}))
         return

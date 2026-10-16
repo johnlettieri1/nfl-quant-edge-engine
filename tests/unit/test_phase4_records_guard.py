@@ -58,3 +58,10 @@ def test_cli_against_a_real_records_checkout(tmp_path):
     (r / "data/odds/raw/totals_a.json").write_text('{"changed": 1}')
     git(r, "add", "-A")
     assert main(["--repo", str(r)]) == 1
+
+
+def test_rejects_unpublished_temp_files_from_interrupted_writes():
+    for p in ("data/odds/raw/.tmp-totals_x.json-abc123", "data/odds/quotes/.tmp-quotes_y.csv-1",
+              "data/weather/raw/.tmp-forecast_z.json-9"):
+        assert ev([("A", p)], new={p: b"partial"})
+    assert ev([("A", "data/odds/raw/totals_x.json")], new={"data/odds/raw/totals_x.json": b"{}"}) == []
