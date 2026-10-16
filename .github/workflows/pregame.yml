@@ -5,7 +5,8 @@
 #
 # Cost control:
 #   - The `gate` job runs every 10 minutes in the UTC windows below. It uses only the FREE /events
-#     endpoint and the records file list, needs no package install, and never spends a credit.
+#     endpoint, the records file list, and the paired-quote files (a game is covered only if a snapshot in
+#     its T-30..T-10 window actually quoted THAT game, by event id). No package install, never spends a credit.
 #   - The `pull` job runs only when the gate finds an uncovered kickoff slot in the window. Right before
 #     paying it re-checks the plan against the latest records (a queued job never pays after kickoff or
 #     for a slot another pull already covered), then spends 1 credit (frozen 10-book list) after a free
@@ -49,20 +50,23 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             src/nfl/market
-      - name: List records raw snapshot files (no blobs downloaded)
+      - name: Records file list and paired-quote files (no raw snapshot bodies downloaded)
         run: |
           # A failed listing must NOT look like "no snapshots yet": fail the gate instead (no pull).
           git clone --quiet --depth 1 --filter=blob:none --no-checkout --branch records \
             "https://github.com/${{ github.repository }}.git" rec
           git -C rec ls-tree -r --name-only HEAD data/odds/raw | sed 's#.*/##' > raw_names.txt
           test -s raw_names.txt
-          wc -l raw_names.txt
+          # per-game coverage comes from the small paired-quote files, not from snapshot filenames
+          git -C rec sparse-checkout set data/odds/quotes
+          git -C rec checkout --quiet records
+          wc -l raw_names.txt; ls rec/data/odds/quotes 2>/dev/null | wc -l
       - name: Plan (free /events only)
         id: plan
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           PYTHONPATH: .
-        run: python3 -m src.nfl.market.pregame_gate --raw-list raw_names.txt --github-output "$GITHUB_OUTPUT"
+        run: python3 -m src.nfl.market.pregame_gate --raw-list raw_names.txt --odds-dir rec/data/odds --github-output "$GITHUB_OUTPUT"
 
   pull:
     needs: gate
@@ -114,6 +118,8 @@ jobs:
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: |
+          # never-published temp files from an interrupted crash-safe write are not records
+          find records/data -name '.tmp-*' -type f -print -delete
           git -C records add -A
           python code/src/nfl/ops/records_guard.py --repo records
           git -C records diff --cached --stat

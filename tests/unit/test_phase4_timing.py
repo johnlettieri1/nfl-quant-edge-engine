@@ -47,8 +47,11 @@ def test_schedule_gate_falls_back_when_first_run_dropped():
 
 
 def test_close_quality_rule():
-    assert T.close_quality(20, 5) and T.close_quality(1, 9) and T.close_quality(30, 5)
-    assert not T.close_quality(31, 9) and not T.close_quality(20, 4) and not T.close_quality(0, 9) and not T.close_quality(-5, 9)
+    R = T.KICKOFF_RESOLVED
+    assert T.close_quality(20, 5, R) and T.close_quality(1, 9, R) and T.close_quality(30, 5, R)
+    assert not T.close_quality(31, 9, R) and not T.close_quality(20, 4, R) and not T.close_quality(0, 9, R)
+    assert not T.close_quality(-5, 9, R)
+    assert not T.close_quality(20, 9, T.KICKOFF_UNRESOLVED) and not T.close_quality(20, 9, None)   # unresolved kickoff
 
 
 def names(*dts, kind="pregame_window"):
@@ -56,40 +59,90 @@ def names(*dts, kind="pregame_window"):
 
 
 K = datetime(2026, 10, 18, 17, 0, tzinfo=UTC)
+E = [("evtA", K)]
+
+
+def cov(*items):
+    """items: (event_id, snapshot_dt, n_books)"""
+    out = {}
+    for eid, ts, n in items:
+        out.setdefault(eid, []).append((ts, n))
+    return out
 
 
 def test_planner_pulls_once_in_window_and_never_after_kickoff():
-    assert not T.plan_pregame(K - timedelta(minutes=34), [K], []).pull          # too early, wait
-    d = T.plan_pregame(K - timedelta(minutes=22), [K], [])
-    assert d.pull and d.target_kickoffs == [K.isoformat()]
-    assert not T.plan_pregame(K - timedelta(minutes=12), [K], names(K - timedelta(minutes=22))).pull   # covered
-    assert not T.plan_pregame(K + timedelta(minutes=1), [K], []).pull           # after kickoff: never
-    assert not T.plan_pregame(K - timedelta(minutes=3), [K], []).pull           # inside T-5: never
+    assert not T.plan_pregame(K - timedelta(minutes=34), E, []).pull          # too early, wait
+    d = T.plan_pregame(K - timedelta(minutes=22), E, [])
+    assert d.pull and d.targets == [{"event_id": "evtA", "kickoff": K.isoformat()}]
+    t = K - timedelta(minutes=22)
+    assert not T.plan_pregame(K - timedelta(minutes=12), E, names(t), coverage=cov(("evtA", t, 9))).pull   # covered
+    assert not T.plan_pregame(K + timedelta(minutes=1), E, []).pull           # after kickoff: never
+    assert not T.plan_pregame(K, E, []).pull                                  # at kickoff: never
+    assert not T.plan_pregame(K - timedelta(minutes=3), E, []).pull           # inside T-5: never
+
+
+def test_snapshot_exists_but_target_game_not_quoted_is_not_covered():
+    t = K - timedelta(minutes=22)
+    other = cov(("evtB", t, 10))                    # the T-22 snapshot quoted a different game only
+    d = T.plan_pregame(K - timedelta(minutes=12), E, names(t), coverage=other)
+    assert d.pull and [x["event_id"] for x in d.targets] == ["evtA"]   # one more attempt allowed (cap 2)
+
+
+def test_multiple_games_kicking_off_together_are_tracked_separately():
+    e = [("evtA", K), ("evtB", K), ("evtC", K + timedelta(minutes=5))]
+    t = K - timedelta(minutes=22)
+    c = cov(("evtA", t, 10), ("evtB", t, 10))       # evtC missing from that snapshot
+    d = T.plan_pregame(K - timedelta(minutes=12), e, names(t), coverage=c)
+    assert d.pull and [x["event_id"] for x in d.targets] == ["evtC"]
+    c2 = cov(("evtA", t, 10), ("evtB", t, 10), ("evtC", t, 8))
+    assert not T.plan_pregame(K - timedelta(minutes=12), e, names(t), coverage=c2).pull
+    d3 = T.plan_pregame(K - timedelta(minutes=20), e, [])
+    assert d3.pull and len(d3.targets) == 3 and d3.target_kickoffs == sorted({K.isoformat(), (K + timedelta(minutes=5)).isoformat()})
+
+
+def test_game_quoted_by_some_but_not_all_books_counts_as_covered():
+    t = K - timedelta(minutes=22)
+    assert not T.plan_pregame(K - timedelta(minutes=12), E, names(t), coverage=cov(("evtA", t, 3))).pull
+    # (close_quality separately requires 5 books, see test_close_quality_rule)
+
+
+def test_valid_coverage_prevents_duplicate_pulls_on_every_later_tick():
+    t = K - timedelta(minutes=25)
+    c = cov(("evtA", t, 10))
+    for m in (21, 15, 11, 8, 6):
+        assert not T.plan_pregame(K - timedelta(minutes=m), E, names(t), coverage=c).pull
+
+
+def test_coverage_outside_the_window_does_not_count():
+    early = K - timedelta(minutes=34)                 # quoted, but before the T-30 window
+    d = T.plan_pregame(K - timedelta(minutes=20), E, names(early), coverage=cov(("evtA", early, 10)))
+    assert d.pull
 
 
 def test_planner_one_late_retry_max_two_attempts():
-    late_first = names(K - timedelta(minutes=34))                                # landed before the window
-    assert T.plan_pregame(K - timedelta(minutes=12), [K], late_first).pull       # retry inside window
-    assert T.plan_pregame(K - timedelta(minutes=7), [K], []).pull                # single late attempt allowed
-    assert not T.plan_pregame(K - timedelta(minutes=7), [K], names(K - timedelta(minutes=33))).pull
+    assert T.plan_pregame(K - timedelta(minutes=12), E, names(K - timedelta(minutes=34))).pull
+    assert T.plan_pregame(K - timedelta(minutes=7), E, []).pull                # single late attempt allowed
+    assert not T.plan_pregame(K - timedelta(minutes=7), E, names(K - timedelta(minutes=33))).pull
     two = names(K - timedelta(minutes=38), K - timedelta(minutes=33))
-    assert not T.plan_pregame(K - timedelta(minutes=12), [K], two).pull          # max 2 attempts per slot
-
-
-def test_planner_any_snapshot_kind_counts_as_coverage_and_slots_merge():
-    k2 = K + timedelta(minutes=5)
-    sun = names(K - timedelta(minutes=20), kind="sun_scheduled")
-    assert not T.plan_pregame(K - timedelta(minutes=12), [K], sun).pull
-    d = T.plan_pregame(K - timedelta(minutes=20), [K, k2], [])
-    assert d.pull and len(d.target_kickoffs) == 2                                # one pull covers both
+    assert not T.plan_pregame(K - timedelta(minutes=12), E, two).pull          # max 2 attempts per game
 
 
 def test_planner_stops_on_halt_file():
-    assert not T.plan_pregame(K - timedelta(minutes=20), [K], ["HALT_cost_anomaly_20261018T120000Z.json"]).pull
+    assert not T.plan_pregame(K - timedelta(minutes=20), E, ["HALT_cost_anomaly_20261018T120000Z.json"]).pull
 
 
 def test_planner_respects_weekly_cap():
-    assert not T.plan_pregame(K - timedelta(minutes=20), [K], [], credits_used_this_week=30).pull
+    assert not T.plan_pregame(K - timedelta(minutes=20), E, [], credits_used_this_week=30).pull
+
+
+def test_coverage_from_quote_csvs_counts_valid_rows_per_game(tmp_path):
+    p = tmp_path / "quotes_x.csv"
+    p.write_text("snapshot_ts_utc,event_id,book,total_line,over_price,under_price\n"
+                 "2026-10-18T16:40:00+00:00,evtA,draftkings,42.5,-110,-110\n"
+                 "2026-10-18T16:40:00+00:00,evtA,fanduel,42.5,-110,-110\n"
+                 "2026-10-18T16:40:00+00:00,evtB,draftkings,,,\n")      # unpaired/blank row ignored
+    c = T.coverage_from_quote_csvs([p])
+    assert c == {"evtA": [(datetime(2026, 10, 18, 16, 40, tzinfo=UTC), 2)]}
 
 
 def test_week_starts_tuesday_midnight_eastern():
