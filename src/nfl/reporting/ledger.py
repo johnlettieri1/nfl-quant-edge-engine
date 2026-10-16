@@ -30,6 +30,9 @@ from src.nfl.market.clv import build_clv_events, edge_bucket
 from src.nfl.market.phase4_config import FORWARD_SEASON_MIN
 from src.nfl.market.line_shopping import build_line_shopping
 from src.nfl.market.movement import apply_game_kickoff, build_movement
+from src.nfl.reporting.legacy_ledger import FIELDS as LEGACY_FIELDS
+from src.nfl.reporting.legacy_ledger import LEDGER_NAME as LEGACY_LEDGER_NAME
+from src.nfl.reporting.legacy_ledger import build_legacy_rows, is_legacy_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -110,19 +113,27 @@ def build_rows(snap: dict, snap_file: str, game: dict, actual: float, ev: pd.Dat
 
 
 def record_results(schedules: pd.DataFrame, pred_dir: Path = PRED_DIR, ledger: Path = LEDGER,
-                   odds_dir: Path = ODDS_DIR) -> int:
-    """Append settled rows for every totals prediction snapshot whose games are final."""
+                   odds_dir: Path = ODDS_DIR, legacy_ledger: Path | None = None) -> int:
+    """Append settled rows for every totals prediction snapshot whose games are final.
+
+    Phase 4 snapshots go to totals_ledger_v2.csv (schema unchanged). Pre-spec snapshots (the Oct 15 2026
+    Week 6 file) go to the separate totals_ledger_legacy_pre_spec.csv as variant `legacy_pre_spec`
+    (src/nfl/reporting/legacy_ledger.py); they never produce v2 executable-quote rows.
+    Returns the total number of rows appended across both files."""
+    legacy_ledger = legacy_ledger or ledger.with_name(LEGACY_LEDGER_NAME)
     schedules = schedules[schedules.season >= FORWARD_SEASON_MIN]   # Phase 4 is 2026+ only (holdout sealed)
     by_id = schedules.set_index("game_id")
     done = _already(ledger)
+    done_legacy = _already(legacy_ledger)
     quotes = apply_game_kickoff(quotes_from_raw(odds_dir, schedules), schedules)
     ev = build_clv_events(quotes)
     ls = build_line_shopping(quotes) if not quotes.empty else pd.DataFrame()
     mv = build_movement(ls, quotes) if not ls.empty else pd.DataFrame()
     first_line = dict(zip(mv.game_id, mv.first_observed_canonical)) if not mv.empty else {}
     now = datetime.now(timezone.utc).isoformat()
-    new = []
+    new, new_legacy = [], []
     for path, snap in _pred_snapshots(pred_dir):
+        legacy = is_legacy_snapshot(snap)
         for g in snap["games"]:
             gid = g["game_id"]
             if gid not in by_id.index:
@@ -131,18 +142,28 @@ def record_results(schedules: pd.DataFrame, pred_dir: Path = PRED_DIR, ledger: P
             if pd.isna(row["home_score"]) or pd.isna(row["away_score"]):
                 continue
             actual = float(row["home_score"] + row["away_score"])
+            if legacy:
+                for r in build_legacy_rows(snap, path.name, g, actual, quotes, odds_dir, now):
+                    key = (path.name, gid, r["variant"])
+                    if key not in done_legacy:
+                        new_legacy.append(r)
+                        done_legacy.add(key)
+                continue
             for r in build_rows(snap, path.name, g, actual, ev, first_line, now):
                 key = (path.name, gid, r["variant"])
                 if key in done:
                     continue
                 new.append(r)
                 done.add(key)
-    if not new:
+    if new_legacy:
+        append_rows_atomic(legacy_ledger, new_legacy, LEGACY_FIELDS)
+        logger.info("Appended %d legacy_pre_spec rows to %s", len(new_legacy), legacy_ledger)
+    if new:
+        append_rows_atomic(ledger, new, FIELDS)
+        logger.info("Appended %d rows to %s", len(new), ledger)
+    if not new and not new_legacy:
         logger.info("No new completed games to record.")
-        return 0
-    append_rows_atomic(ledger, new, FIELDS)
-    logger.info("Appended %d rows to %s", len(new), ledger)
-    return len(new)
+    return len(new) + len(new_legacy)
 
 
 def summarize(ledger: Path = LEDGER) -> dict:
