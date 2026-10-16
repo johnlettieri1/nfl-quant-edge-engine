@@ -25,6 +25,7 @@ APPEND_ONLY = frozenset({
     "data/odds/book_lines.csv", "data/odds/game_summary.csv",           # frozen legacy (Phase 2B)
     "data/odds/quotes_v2.csv", "data/weather/forecasts_v1.csv",
     "data/predictions/totals_ledger.csv", "data/predictions/totals_ledger_v2.csv",
+    "data/predictions/totals_ledger_legacy_pre_spec.csv",
 })
 MUTABLE = frozenset({"data/predictions/totals_index.json"})
 

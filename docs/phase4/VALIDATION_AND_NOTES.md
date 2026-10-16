@@ -144,3 +144,31 @@ Tests cover flexed games, verified postponements, unverified postponements, unma
   This is a single snapshot and not a general estimate.
 - Per instruction, neither the book list nor the model was changed to remove these differences. The lean
   remains a 0-unit research field.
+
+## Week 6 legacy settlement (compatibility hotfix, approved Oct 16 2026)
+
+The Oct 15 2026 Week 6 prediction snapshot (`totals_2026_wk06_20261015T180406Z.json`, 14 games) predates
+Phase 4. Its games reference the market as `odds_snapshot:20261015T180351Z` (timestamp only). Its
+`market_total` is the median of the 9 Phase 2B US-region books, which is not an executable quote, and its
+`over_price`/`under_price` are best-line prices that are not paired with that median.
+
+- **Detection:** a snapshot is legacy if any game uses the timestamp-only id. Phase 4 ids always carry the
+  snapshot kind, so the rule never matches a Phase 4 snapshot.
+- **Resolution:** the id maps to exactly one pre-spec raw file on records
+  (`totals_20261015T180351Z_current.json`). Zero or multiple matches mark the row `unresolved`. The recorded
+  total is re-verified against the raw book lines (`line_verified_against_raw`).
+- **Output:** a separate append-only file `data/predictions/totals_ledger_legacy_pre_spec.csv`, variant
+  `legacy_pre_spec`, result type `hypothetical_research_not_a_wager`. Phase 4 predictions keep the unchanged
+  `totals_ledger_v2.csv` schema, and legacy snapshots never produce `consensus_all` or `best_available_ny` rows.
+- **Result:** win, loss or push against the ORIGINALLY recorded total. No later or better number is substituted.
+- **No manufactured quotes:** `book_taken`, `price_taken` and `price_clv` are always blank.
+- **Calibrated probability:** blank, because the old snapshot never had it. The raw probability is the
+  original `model_over_prob`.
+- **`consensus_line_move`:** median-to-median movement from the prediction's market number to the game's
+  last pregame snapshot strictly after the legacy snapshot (in-play snapshots are excluded).
+  - This is market movement, not executable CLV.
+  - The reference book set is recorded because it differs from the legacy 9-book set.
+  - It is blank when no such snapshot exists.
+  - `ref_close_quality` follows the normal close-quality rule.
+- **Safety:** settlement is idempotent, the original snapshot is never modified, and the records guard treats
+  the new file as append-only.
