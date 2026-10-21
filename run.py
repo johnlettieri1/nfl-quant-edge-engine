@@ -112,9 +112,15 @@ def cmd_odds(a):
     except SnapshotNotNeeded as e:
         print(json.dumps({"skipped": True, "reason": str(e), "credits_spent": 0}))
         if a.github_output:
+            reason = "already_captured" if "already captured" in str(e) else (
+                "obsolete" if "obsolete" in str(e) else "not_needed")
             with open(a.github_output, "a") as f:
-                f.write("skipped=true\n")
+                f.write(f"skipped=true\nskip_reason={reason}\n")
         return
+    if a.github_output:
+        # the raw file this paid pull wrote; the workflow verifies it is on the remote records branch
+        with open(a.github_output, "a") as f:
+            f.write(f"raw_file={Path(summary['raw_path']).name}\n")
     games = summary.pop("games_for_weather", [])
     if not a.no_weather and sched is not None:
         # Weather never blocks the odds record: the paid odds snapshot is already saved at this point.
@@ -154,6 +160,33 @@ def cmd_schedule_gate(a):
             f.write(f"heartbeat={('nfl-' + window_kind.replace('_', '-')) if window_kind else ''}\n")
 
 
+def cmd_claim(a):
+    """Record a paid-pull claim on the records branch (compare-and-swap push) right before paying.
+    Prints/outputs pay=true only when THIS job's claim is on the remote branch."""
+    from datetime import datetime, timezone
+    from src.nfl.ops import claims as CL
+    now_fn = lambda: datetime.now(timezone.utc)  # noqa: E731
+    if a.mode == "scheduled":
+        d = CL.claim_with_cas(Path(a.repo), lambda od: CL.decide_scheduled(now_fn(), a.kind, a.target, od, a.trigger),
+                              lambda d: {"scheduled_target": a.target, "event_ids": [], "trigger": a.trigger},
+                              now_fn, a.run_id, a.kind)
+    else:
+        targets = json.loads(a.targets or "[]")
+        d = CL.claim_with_cas(Path(a.repo), lambda od: CL.decide_pregame(now_fn(), targets, od),
+                              lambda d: {"scheduled_target": None, "event_ids": [t["event_id"] for t in d.targets],
+                                         "trigger": a.trigger},
+                              now_fn, a.run_id, "pregame_window")
+    if d.pay:
+        CL.refresh_odds_dir(Path(a.repo), Path(a.odds_dir))
+    print(json.dumps({"pay": d.pay, "state": d.state, "reason": d.reason, "claim": d.claim_file, "targets": d.targets}))
+    if a.github_output:
+        with open(a.github_output, "a") as f:
+            f.write(f"pay={'true' if d.pay else 'false'}\nstate={d.state}\nclaim={d.claim_file or ''}\n")
+            f.write(f"targets={json.dumps(d.targets)}\n")
+    if d.state == "claim_failed":
+        sys.exit(1)
+
+
 def cmd_phase4_build(a):
     from src.nfl.data.ingest import load_cached_schedules
     from src.nfl.market.build import build_all
@@ -172,9 +205,28 @@ def cmd_record_results(a):
     from src.nfl.reporting.ledger import record_results, summarize
     if os.environ.get("ODDS_API_KEY"):
         logging.info("ODDS_API_KEY is set but settlement never uses it.")
+    from datetime import datetime, timezone
+    as_of = (datetime.fromisoformat(a.as_of.replace("Z", "+00:00")) if getattr(a, "as_of", None)
+             else datetime.now(timezone.utc))
     sched = fetch_schedules()
-    n = record_results(sched)
-    print(json.dumps({"appended": n, **summarize()}, indent=1))
+    n = record_results(sched, now=as_of)
+    print(json.dumps({"appended": n, "as_of": as_of.isoformat(), **summarize()}, indent=1))
+
+
+def cmd_settle_verify(a):
+    """Read-back check for the settlement heartbeat: every expected settlement key of every verified-final
+    prediction (as of --as-of) must be in its ledger in --pred-dir (the remote records, freshly fetched).
+    Exit 1 lists what is missing. Read-only; uses the schedules cached by the settle step."""
+    from datetime import datetime
+    from src.nfl.data.ingest import load_cached_schedules
+    from src.nfl.reporting.ledger import settlement_gaps
+    as_of = datetime.fromisoformat(a.as_of.replace("Z", "+00:00"))
+    pred = Path(a.pred_dir)
+    gaps = settlement_gaps(load_cached_schedules(), pred, pred / "totals_ledger_v2.csv",
+                           pred / "totals_ledger_legacy_pre_spec.csv", as_of)
+    print(json.dumps({"as_of": as_of.isoformat(), "missing": gaps}, indent=1))
+    if gaps:
+        sys.exit(1)
 
 
 def cmd_monitor(a):
@@ -293,10 +345,17 @@ def main():
     s.add_argument("--targets"); s.add_argument("--no-weather", action="store_true"); s.set_defaults(fn=cmd_odds)
     s = sub.add_parser("schedule-gate"); s.add_argument("--raw-dir", required=True); s.add_argument("--github-output")
     s.add_argument("--force-kind", choices=kinds); s.set_defaults(fn=cmd_schedule_gate)
+    s = sub.add_parser("claim"); s.add_argument("--repo", required=True); s.add_argument("--odds-dir", default="data/odds")
+    s.add_argument("--mode", required=True, choices=["scheduled", "pregame"]); s.add_argument("--kind"); s.add_argument("--target")
+    s.add_argument("--targets"); s.add_argument("--run-id", default="local"); s.add_argument("--trigger", default="manual")
+    s.add_argument("--github-output"); s.set_defaults(fn=cmd_claim)
     s = sub.add_parser("phase4-build"); s.add_argument("--out", default="data/derived/phase4"); s.set_defaults(fn=cmd_phase4_build)
     s = sub.add_parser("predict"); s.add_argument("--season", type=int); s.add_argument("--week", type=int); s.set_defaults(fn=cmd_predict)
     s = sub.add_parser("record-results"); s.set_defaults(fn=cmd_record_results)
-    s = sub.add_parser("settle"); s.set_defaults(fn=cmd_record_results)
+    s = sub.add_parser("settle"); s.add_argument("--as-of", help="ISO UTC time used for the verified-final rule")
+    s.set_defaults(fn=cmd_record_results)
+    s = sub.add_parser("settle-verify"); s.add_argument("--pred-dir", required=True); s.add_argument("--as-of", required=True)
+    s.set_defaults(fn=cmd_settle_verify)
     s = sub.add_parser("monitor"); s.add_argument("--records", required=True); s.add_argument("--runs-json")
     s.add_argument("--records-head-time"); s.add_argument("--open-issues", action="store_true"); s.add_argument("--out")
     s.set_defaults(fn=cmd_monitor)

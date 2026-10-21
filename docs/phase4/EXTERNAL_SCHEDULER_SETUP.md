@@ -134,6 +134,12 @@ It does not repeat emails while the same problem continues. A "down" weekly chec
 means the external run did not complete; the GitHub cron backup may still capture it later (labeled delayed),
 and the check will then go back up.
 
+A green weekly, pregame or settlement check always means the work was read back from the records branch on
+GitHub, not just that a workflow finished. If a check turns red right after a run, open that run in GitHub
+Actions: a paid capture that could not be saved to records is kept as a downloadable artifact named
+`unverified-capture-...` for 30 days. You will also see small `claim_...json` files appear under
+`data/odds/claims/` on the records branch; they are normal (each marks one paid pull about to happen).
+
 ## Part 4. Add the heartbeat secret to GitHub
 
 1. Open the repository on GitHub, then **Settings**, then **Secrets and variables**, then **Actions**.

@@ -92,36 +92,39 @@ def missed_pregame(now: datetime, quotes: pd.DataFrame, schedules: pd.DataFrame,
     return out
 
 
-def settle_reference_kickoff(row):
-    from src.nfl.reporting.ledger import settle_reference_kickoff as _k
-    return _k(row)
-
-
 def unsettled(now: datetime, schedules: pd.DataFrame, pred_dir: Path, ledgers: list[Path]) -> list[dict]:
+    """Key-level check: every (prediction snapshot, game, expected variant) of a verified final game must be
+    in its assigned ledger 36 h after kickoff (ledgers = [v2 ledger, legacy ledger]). One finding per week,
+    stable title, so repeated monitor runs never open repeated issues."""
+    from src.nfl.reporting.ledger import settlement_gaps
     now = parse_utc(now)
-    predicted = set()
-    for p in sorted(pred_dir.glob("totals_*.json")):
-        if p.name == "totals_index.json":
-            continue
-        for g in json.loads(p.read_text()).get("games", []):
-            predicted.add(g["game_id"])
-    settled = set()
-    for led in ledgers:
-        if led.exists():
-            settled |= set(pd.read_csv(led, usecols=["game_id"]).game_id.astype(str))
-    late = []
-    for r in schedules[schedules.game_id.isin(predicted)].itertuples():
-        if pd.isna(r.home_score) or pd.isna(r.away_score):
-            continue
-        k = settle_reference_kickoff({"gameday": r.gameday, "gametime": r.gametime})
-        if k is not None and now >= k + timedelta(hours=C.SETTLE_ALERT_HOURS) and r.game_id not in settled:
-            late.append(r.game_id)
+    gaps = settlement_gaps(schedules, pred_dir, ledgers[0], ledgers[1], now, min_hours_after_kickoff=C.SETTLE_ALERT_HOURS)
     out = []
-    for week in sorted({g[:7] for g in late}):
-        games = sorted(g for g in late if g[:7] == week)
+    for week in sorted({g["week"] for g in gaps}):
+        rows = [g for g in gaps if g["week"] == week]
+        lines = [f"- {g['snapshot_file']} / {g['game_id']} / {g['variant']} ({g['ledger']} ledger)" for g in rows]
         out.append(_finding(f"unsettled-{week}", f"Settlement missing for week {week}",
-                            "Final, predicted games not in either ledger 36 h after kickoff: " + ", ".join(games)
-                            + ". Run the Settlement workflow (no credits)."))
+                            f"{len(rows)} expected settlement row(s) are missing 36 h after kickoff "
+                            "(final scores are available):\n" + "\n".join(lines)
+                            + "\nRun the Settlement workflow (no credits)."))
+    return out
+
+
+def unresolved_claims(now: datetime, odds_dir: Path, start: datetime | None = None) -> list[dict]:
+    """A paid-pull claim (Safeguard 3) older than its TTL with no capture of its kind inside [claim, claim + TTL].
+    Either the final re-check skipped the pull (no credit) or a PAID capture never reached records."""
+    from src.nfl.ops.claims import _raw, load_claims, resolved
+    now, begin = parse_utc(now), _start(parse_utc(now), start)
+    raw = _raw(odds_dir)
+    out = []
+    for c in load_claims(odds_dir):
+        if c["_ts"] < begin or now - c["_ts"] < timedelta(minutes=C.CLAIM_TTL_MIN + 10) or resolved(c, raw):
+            continue
+        run = str(c.get("run_id", "")).split("-")[0]
+        out.append(_finding(f"claim-unresolved-{c['_file']}", f"Paid pull claimed but no capture in records: {c['_file']}",
+                            f"Run {run} claimed a `{c['kind']}` pull at {to_et(c['_ts']).isoformat()} and no capture of that kind "
+                            "followed. Either the final re-check skipped it (no credit spent) or a paid capture was not "
+                            "committed: check that run and its `unverified-capture` artifact."))
     return out
 
 
@@ -169,7 +172,7 @@ def run_checks(now: datetime, records: Path, schedules: pd.DataFrame, runs: list
     names = sorted(p.name for p in raw_dir.iterdir()) if raw_dir.exists() else []
     pred = records / "data" / "predictions"
     quotes = load_quotes(records / "data" / "odds")
-    return (halt(names) + missed_scheduled(now, names, start) + missed_pregame(now, quotes, schedules, start)
+    return (halt(names) + unresolved_claims(now, records / "data" / "odds", start) + missed_scheduled(now, names, start) + missed_pregame(now, quotes, schedules, start)
             + unsettled(now, schedules, pred, [pred / "totals_ledger_v2.csv", pred / "totals_ledger_legacy_pre_spec.csv"])
             + workflow_failures(now, runs) + records_stale(now, head_time))
 

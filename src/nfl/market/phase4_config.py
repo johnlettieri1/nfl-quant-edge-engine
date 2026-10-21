@@ -51,6 +51,9 @@ PREGAME_ATTEMPT_LOOKBACK_MIN = 40  # snapshots within 40 min before a kickoff co
 # that target for it instead of buying a second pull for the same game; if it has not landed, the planner
 # pulls as usual (still inside the window, never after kickoff).
 PREGAME_SCHEDULED_DEFER_MIN = 8
+# Paid-pull claims (Safeguard 3): a job records its intent on `records` (push without rebase) right before
+# paying; an unresolved claim blocks other jobs for this many minutes, then expires on its own (no lock).
+CLAIM_TTL_MIN = 20
 
 # ---- Kickoff resolution -----------------------------------------------------------------------
 KICKOFF_AGREE_TOL_MIN = 5          # Odds API and nflverse kickoffs within 5 min = agreed (verified)

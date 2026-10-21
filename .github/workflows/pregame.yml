@@ -116,13 +116,27 @@ jobs:
       - name: Schedules only (for game_id matching and venues)
         working-directory: code
         run: python run.py data --schedules-only
+      # Safeguard 3: claim the target games on `records` (push WITHOUT rebase) right before paying. Games
+      # claimed by another in-progress pull, or inside the window of an in-progress scheduled snapshot, are
+      # dropped; no claim recorded = no payment (fail closed).
+      - name: Claim the paid pull (compare-and-swap on records)
+        id: claim
+        working-directory: code
+        env:
+          TRIGGER: ${{ github.event_name == 'schedule' && 'github_cron' || (github.event.inputs.source == 'external' && 'external_dispatch' || 'manual') }}
+          TARGETS: ${{ needs.gate.outputs.targets }}
+        run: >-
+          python run.py claim --repo ../records --odds-dir data/odds --mode pregame --targets "$TARGETS"
+          --trigger "$TRIGGER" --run-id "${{ github.run_id }}-${{ github.run_attempt }}" --github-output "$GITHUB_OUTPUT"
       - name: Pregame odds snapshot + forecast weather (1 credit; re-checks the plan first, skips at 0 credits)
+        id: odds
+        if: steps.claim.outputs.pay == 'true'
         working-directory: code
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           TRIGGER: ${{ github.event_name == 'schedule' && 'github_cron' || (github.event.inputs.source == 'external' && 'external_dispatch' || 'manual') }}
-          TARGETS: ${{ needs.gate.outputs.targets }}
-        run: python run.py odds --kind pregame_window --trigger "$TRIGGER" --targets "$TARGETS"
+          TARGETS: ${{ steps.claim.outputs.targets }}
+        run: python run.py odds --kind pregame_window --trigger "$TRIGGER" --targets "$TARGETS" --github-output "$GITHUB_OUTPUT"
       - name: Copy records
         if: always()
         run: |
@@ -152,12 +166,44 @@ jobs:
             git -c user.name="pregame-bot" -c user.email="pregame-bot@users.noreply.github.com" pull --rebase --quiet origin records
           done
           echo "::error title=records::push failed after 3 attempts"; exit 1
+      # Safeguard 2: a paid capture counts only once its raw file is read back from the REMOTE records branch.
+      - name: Verify capture on remote records
+        id: verify
+        if: always() && steps.odds.outputs.raw_file != ''
+        env:
+          RAW_FILE: ${{ steps.odds.outputs.raw_file }}
+        run: |
+          if git -C records fetch --quiet origin records && git -C records cat-file -e "FETCH_HEAD:data/odds/raw/$RAW_FILE"; then
+            echo "verified=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "verified=false" >> "$GITHUB_OUTPUT"
+            echo "::error title=records::paid capture $RAW_FILE is NOT on the remote records branch"; exit 1
+          fi
+      - name: Keep an unverified paid capture as a run artifact (recovery copy)
+        if: always() && steps.odds.outputs.raw_file != '' && steps.verify.outputs.verified != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unverified-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            code/data/odds/raw/${{ steps.odds.outputs.raw_file }}
+            code/data/odds/quotes/
+          retention-days: 30
       - name: Heartbeat
         if: always()
+        working-directory: code
         env:
           HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
-          OUTCOME: ${{ job.status }}
+          PYTHONPATH: .
+          CLAIM_STATE: ${{ steps.claim.outputs.state }}
+          CLAIM_OUTCOME: ${{ steps.claim.outcome }}
+          ODDS_OUTCOME: ${{ steps.odds.outcome }}
+          SKIP_REASON: ${{ steps.odds.outputs.skip_reason }}
+          RAW_FILE: ${{ steps.odds.outputs.raw_file }}
+          VERIFIED: ${{ steps.verify.outputs.verified }}
+          JOB_STATUS: ${{ job.status }}
         run: |
-          [ -z "$HC_PING_KEY" ] && exit 0
-          if [ "$OUTCOME" = "success" ]; then suffix=""; else suffix="/fail"; fi
-          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/$HC_PING_KEY/nfl-pregame$suffix" || true
+          read -r state action < <(python -m src.nfl.ops.heartbeat pregame || echo "failed fail")
+          echo "heartbeat: slug=nfl-pregame state=$state action=$action"
+          [ -z "$HC_PING_KEY" ] || [ "$action" = "none" ] && exit 0
+          suffix=""; [ "$action" = "success" ] || suffix="/fail"
+          curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "state=$state run=${{ github.run_id }}" "https://hc-ping.com/$HC_PING_KEY/nfl-pregame$suffix" || true

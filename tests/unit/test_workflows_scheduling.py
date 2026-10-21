@@ -72,7 +72,7 @@ def test_heartbeat_key_only_from_secret_env_and_never_in_a_query_string():
         assert "HC_PING_KEY: ${{ secrets.HC_PING_KEY }}" in t, name
         assert "hc-ping.com/${{" not in t, name                              # never interpolated into the script
         assert not re.search(r"hc-ping\.com/[^\"]*\?", t), name             # no query string
-        assert '[ -n "$HC_PING_KEY" ]' in t or '[ -z "$HC_PING_KEY" ] && exit 0' in t, name
+        assert '[ -z "$HC_PING_KEY" ] &&' in t or '[ -z "$HC_PING_KEY" ] ||' in t, name
 
 
 def test_pregame_targets_and_trigger_passed_via_env_not_inline_interpolation():

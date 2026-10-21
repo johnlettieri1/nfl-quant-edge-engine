@@ -64,8 +64,12 @@ jobs:
           cp -a records/data/predictions/. code/data/predictions/ 2>/dev/null || true
 
       - name: Settle verified finals (no credits, no Odds API key)
+        id: settle
         working-directory: code
-        run: python run.py settle
+        run: |
+          AS_OF=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "as_of=$AS_OF" >> "$GITHUB_OUTPUT"
+          python run.py settle --as-of "$AS_OF"
 
       - name: Copy ledgers only
         run: |
@@ -82,24 +86,45 @@ jobs:
           git -C records diff --cached --stat
 
       - name: Commit and push to records
+        id: commit
         if: steps.guard.outcome == 'success'
         working-directory: records
         run: |
-          git -c user.name="settle-bot" -c user.email="settle-bot@users.noreply.github.com" \
-            commit -q -m "records: settlement $(date -u +%Y-%m-%dT%H:%MZ)" || { echo "nothing new to settle"; exit 0; }
+          if ! git -c user.name="settle-bot" -c user.email="settle-bot@users.noreply.github.com" \
+              commit -q -m "records: settlement $(date -u +%Y-%m-%dT%H:%MZ)"; then
+            echo "nothing new to settle"; echo "result=nothing" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           for i in 1 2 3; do
-            if git push origin HEAD:refs/heads/records; then exit 0; fi
+            if git push origin HEAD:refs/heads/records; then echo "result=pushed" >> "$GITHUB_OUTPUT"; exit 0; fi
             # only this workflow writes the ledgers, so a concurrent snapshot commit rebases cleanly
             git -c user.name="settle-bot" -c user.email="settle-bot@users.noreply.github.com" pull --rebase --quiet origin records
           done
+          echo "result=failed" >> "$GITHUB_OUTPUT"
           echo "::error title=records::push failed after 3 attempts"; exit 1
+
+      # Safeguard 2: read the ledgers back from the REMOTE records branch and confirm every expected settlement
+      # key (snapshot file, game, variant) of every verified final is present, as of the settle time.
+      - name: Verify settlement on remote records
+        id: verify
+        if: steps.commit.outputs.result == 'pushed' || steps.commit.outputs.result == 'nothing'
+        run: |
+          git -C records fetch --quiet origin records
+          rm -rf verify && mkdir -p verify
+          git -C records archive FETCH_HEAD data/predictions | tar -x -C verify
+          cd code && python run.py settle-verify --pred-dir ../verify/data/predictions --as-of "${{ steps.settle.outputs.as_of }}"
 
       - name: Heartbeat
         if: always()
+        working-directory: code
         env:
           HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
-          OUTCOME: ${{ job.status }}
+          PYTHONPATH: .
+          SETTLE_OUTCOME: ${{ steps.settle.outcome }}
+          COMMIT_RESULT: ${{ steps.commit.outputs.result }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
         run: |
-          [ -z "$HC_PING_KEY" ] && exit 0
-          if [ "$OUTCOME" = "success" ]; then suffix=""; else suffix="/fail"; fi
-          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/$HC_PING_KEY/nfl-settle$suffix" || true
+          read -r state action < <(python -m src.nfl.ops.heartbeat settle || echo "failed fail")
+          echo "heartbeat: slug=nfl-settle state=$state action=$action"
+          [ -z "$HC_PING_KEY" ] || [ "$action" = "none" ] && exit 0
+          suffix=""; [ "$action" = "success" ] || suffix="/fail"
+          curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "state=$state run=${{ github.run_id }}" "https://hc-ping.com/$HC_PING_KEY/nfl-settle$suffix" || true

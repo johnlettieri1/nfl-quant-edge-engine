@@ -94,7 +94,7 @@ def test_settle_command_never_needs_the_odds_key(tmp_path, monkeypatch):
     called = {}
     monkeypatch.delenv("ODDS_API_KEY", raising=False)
     monkeypatch.setattr("src.nfl.data.ingest.fetch_schedules", lambda *a, **k: SCHED)
-    monkeypatch.setattr("src.nfl.reporting.ledger.record_results", lambda s: called.setdefault("n", 0))
+    monkeypatch.setattr("src.nfl.reporting.ledger.record_results", lambda s, now=None: called.setdefault("n", 0))
     monkeypatch.setattr("src.nfl.reporting.ledger.summarize", lambda: {"rows": 0})
 
     def boom(*a, **k):

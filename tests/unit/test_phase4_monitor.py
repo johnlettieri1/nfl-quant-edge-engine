@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -87,12 +87,12 @@ def test_unsettled_final_games_alert_after_36h_and_clear_when_settled(tmp_path):
     pred = _pred(tmp_path)
     s = SCHED.copy()
     s.loc[s.game_id == "2026_07_SEA_DEN", ["home_score", "away_score"]] = [20, 17]
-    led = pred / "totals_ledger_v2.csv"
-    assert M.unsettled(u(2026, 10, 19, 17, 0), s, pred, [led]) == []           # only 24 h after kickoff
-    out = M.unsettled(u(2026, 10, 20, 6, 0), s, pred, [led])
+    led, leg = pred / "totals_ledger_v2.csv", pred / "totals_ledger_legacy_pre_spec.csv"
+    assert M.unsettled(u(2026, 10, 19, 17, 0), s, pred, [led, leg]) == []           # only 24 h after kickoff
+    out = M.unsettled(u(2026, 10, 20, 6, 0), s, pred, [led, leg])
     assert [f["key"] for f in out] == ["unsettled-2026_07"] and "DET_MIN" not in out[0]["body"]   # no score: not final
-    led.write_text("game_id,variant\n2026_07_SEA_DEN,consensus_all\n")
-    assert M.unsettled(u(2026, 10, 20, 6, 0), s, pred, [led]) == []
+    led.write_text("snapshot_file,game_id,variant\ntotals_2026_wk07_x.json,2026_07_SEA_DEN,none\n")
+    assert M.unsettled(u(2026, 10, 20, 6, 0), s, pred, [led, leg]) == []
 
 
 def test_halt_alert():
@@ -169,3 +169,22 @@ def test_uncommitted_pull_is_flagged_through_the_failed_run():
              "databaseId": 77, "url": "https://github.com/o/r/actions/runs/77"}]
     out = M.workflow_failures(u(2026, 10, 25, 18, 0), runs)
     assert len(out) == 1 and "records were not committed" in out[0]["body"] and "runs/77" in out[0]["body"]
+
+
+def _claim(odds, ts, kind="thu_scheduled", run="555-1"):
+    d = odds / "claims"; d.mkdir(parents=True, exist_ok=True)
+    name = f"claim_{ts:%Y%m%dT%H%M%SZ}_{kind}_r{run}.json"
+    (d / name).write_text(json.dumps({"claim_ts": ts.isoformat(), "kind": kind, "run_id": run}))
+    return name
+
+
+def test_unresolved_claim_flags_a_possibly_uncommitted_paid_capture(tmp_path):
+    odds = tmp_path / "odds"; (odds / "raw").mkdir(parents=True)
+    t = u(2026, 10, 22, 13, 11)
+    name = _claim(odds, t)
+    assert M.unresolved_claims(t + timedelta(minutes=15), odds, START) == []            # still inside TTL
+    out = M.unresolved_claims(t + timedelta(hours=1), odds, START)
+    assert [f["key"] for f in out] == [f"claim-unresolved-{name}"] and "Run 555" in out[0]["body"]
+    assert M.unresolved_claims(t + timedelta(hours=5), odds, START)[0]["title"] == out[0]["title"]   # stable
+    (odds / "raw" / raw(t + timedelta(seconds=20), "thu_scheduled")).write_text("{}")
+    assert M.unresolved_claims(t + timedelta(hours=1), odds, START) == []               # capture landed

@@ -113,6 +113,52 @@ def build_rows(snap: dict, snap_file: str, game: dict, actual: float, ev: pd.Dat
     return out
 
 
+def expected_settlement(snap: dict, game: dict) -> tuple[str, tuple[str, ...]]:
+    """Which ledger and which variants a settled prediction MUST produce (the same rules as build_rows /
+    build_legacy_rows; tests assert the two never diverge). Returns ("legacy" | "v2", variants)."""
+    if is_legacy_snapshot(snap):
+        return "legacy", ("legacy_pre_spec",)
+    side = game.get("lean") if game.get("lean") in ("OVER", "UNDER") else "PASS"
+    src = game.get("market_source") or ""
+    if side == "PASS" or not src:
+        return "v2", ("none",)
+    if not src.startswith("odds_snapshot:"):
+        return "v2", ("nflverse_line",)
+    return "v2", LEAN_VARIANTS
+
+
+def settlement_gaps(schedules: pd.DataFrame, pred_dir: Path, ledger: Path, legacy_ledger: Path, now: datetime,
+                    min_hours_after_kickoff: float | None = None) -> list[dict]:
+    """Every expected settlement key (prediction snapshot file, game_id, variant) that is NOT in its ledger.
+
+    Eligible = the game is a verified final at `now` (both scores, kickoff + 5 h), and, when
+    min_hours_after_kickoff is given, at least that many hours past kickoff (the monitor uses 36 h).
+    A game that merely appears in some ledger is not treated as settled: each snapshot and each variant
+    is checked in the ledger that rule assigns it to. Read-only."""
+    schedules = schedules[schedules.season >= FORWARD_SEASON_MIN]
+    by_id = schedules.set_index("game_id")
+    have = {"v2": _already(ledger), "legacy": _already(legacy_ledger)}
+    gaps = []
+    for path, snap in _pred_snapshots(pred_dir):
+        for g in snap["games"]:
+            gid = g["game_id"]
+            if gid not in by_id.index:
+                continue
+            row = by_id.loc[gid]
+            if not is_verified_final(row, now):
+                continue
+            if min_hours_after_kickoff is not None:
+                k = settle_reference_kickoff(row)
+                if k is None or now < k + timedelta(hours=min_hours_after_kickoff):
+                    continue
+            which, variants = expected_settlement(snap, g)
+            for v in variants:
+                if (path.name, gid, v) not in have[which]:
+                    gaps.append({"snapshot_file": path.name, "game_id": gid, "variant": v, "ledger": which,
+                                 "week": str(gid)[:7]})
+    return gaps
+
+
 def is_verified_final(row, now: datetime) -> bool:
     """A final score is used only when nflverse reports both scores AND the game's scheduled kickoff
     (US Eastern, zoneinfo) is at least SETTLE_MIN_HOURS_AFTER_KICKOFF in the past."""

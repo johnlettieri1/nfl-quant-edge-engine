@@ -84,7 +84,8 @@ scheduler can only start the free gate; the gate decides, so no paid request hap
 |---|---|
 | missed-snapshot | a scheduled kind has no capture by the time its late window closed |
 | missed-pregame | a kickoff slot's games have no paired quote in the 30 minutes before kickoff |
-| unsettled | a predicted, final game is in neither ledger 36 h after kickoff |
+| unsettled | 36 h after kickoff, an expected settlement key (prediction snapshot file, game, variant) of a verified final is missing from its assigned ledger (legacy snapshots: `legacy_pre_spec` in the legacy ledger; Phase 4 snapshots: `consensus_all` + `best_available_ny`, `nflverse_line` or `none` in the v2 ledger). A game ID present in some ledger does not count as settled. |
+| claim-unresolved | a paid-pull claim has no capture of its kind 30 min later (either skipped by the final re-check, or a paid capture never reached records) |
 | halt | a HALT file exists |
 | workflow-failure | a Weekly, Pregame, Settlement or Monitor run failed in the last 26 h (covers a paid pull whose records commit failed) |
 | records-stale | in season, no records commit for 50 h |
@@ -92,17 +93,50 @@ scheduler can only start the free gate; the gate decides, so no paid request hap
 One GitHub issue per finding, label `collection-alert`, stable titles, never re-created even if closed.
 Alerts start from 2026-10-22 (no alerts for the incident already handled).
 
-Direct external alerts (healthchecks.io, not dependent on GitHub launching anything):
+Direct external alerts (healthchecks.io, not dependent on GitHub launching anything). A job that merely exits
+successfully never sends a success ping; the decision is `src/nfl/ops/heartbeat.py` (unit-tested, and the
+real workflow scripts are executed in tests with a stub `curl`):
 
-| Check (slug) | Pinged by | Expected |
+| Check (slug) | Success ping only when | `/fail` when | No ping |
+|---|---|---|---|
+| `nfl-tue-scheduled` ... `nfl-sun-night-scheduled` | (1) this run's paid capture is committed AND its raw file is read back from the remote `records` branch, or (2) the records already hold that (kind, target) capture | any failure or abort, a refused pull, or (5) a paid capture that is not on remote `records` | no live window, obsolete window, or another run holds the claim (that run reports) |
+| `nfl-pregame` | a paid capture verified on remote `records` | failure, refused pull, unverified capture | nothing to buy, or claimed by another pull |
+| `nfl-settle` | settlement ran, its push succeeded (or there was nothing new), AND `settle-verify` read the ledgers back from remote `records` and found every expected key for verified finals as of the settle time | anything else | (never) |
+| `nfl-monitor` | a clean monitor run | findings or error | (never) |
+
+Expected schedules: weekly checks at each target with 1 h grace; `nfl-settle` Tue/Wed/Thu 10:30 with 2 h
+grace; `nfl-monitor` 8:00 and 20:00 with 2 h grace; `nfl-pregame` at least once every 8 days. A paid capture
+that cannot be verified on remote `records` is also uploaded as a 30-day run artifact
+(`unverified-capture-<run>`) so the data can be recovered. Heartbeat steps do nothing when the `HC_PING_KEY`
+secret is empty and never fail a job.
+
+## 5b. Duplicate paid-pull races (Safeguard 3)
+
+Simulated with real local git repositories (`tests/unit/test_paid_pull_races.py`, barriers force every job to
+pass its records check before any job pushes):
+
+| Scenario | Before this safeguard | Now |
 |---|---|---|
-| `nfl-tue-scheduled`, `nfl-thu-scheduled`, `nfl-sat-scheduled`, `nfl-sun-scheduled`, `nfl-sun-night-scheduled` | Weekly run that served that window (captured, or found it already captured) | each target, 1 h grace |
-| `nfl-settle` | Settlement run | Tue/Wed/Thu 10:30, 2 h grace |
-| `nfl-monitor` | Monitor run: success only when clean, `/fail` on findings or error | 8:00 and 20:00, 2 h grace |
-| `nfl-pregame` | Pregame pull job (success or `/fail`) | at least once every 8 days |
+| Two external weekly triggers together | serialized by the `weekly-records` group, so 1 pull if the first push succeeds | 1 pull (also proven without serialization: 5 simultaneous jobs, exactly 1 pays) |
+| External + GitHub cron overlap | 1 pull if the first push succeeds | 1 pull: blocked by the claim while in progress, by the capture afterwards |
+| Two pregame jobs pass checks before either commits | serialized pull jobs; 1 pull if the first push succeeds | 1 pull per game; a later job buys only games nobody claimed |
+| Weekly and pregame overlapping (9:30 AM ET games) | **2 pulls possible** (different concurrency groups) | 1 pull when the scheduled snapshot claims first (the pregame job sees the in-progress scheduled claim inside the game's window). 2 pulls when the scheduled snapshot is late and the pregame pull claimed first: residual, by design (different snapshot kinds) |
+| Records push failing after a paid pull | next job pays again | blocked for the claim TTL (20 min); after that a second pull is possible (the first capture is kept as an artifact) |
+| Records push delayed longer than the TTL | next job pays again | a second pull is possible; the late capture then dedupes later runs |
+| Claim push fails | n/a | no payment (fail closed) |
+| Job crashes after claiming, before paying | n/a | claim expires after 20 min; no deadlock, no manual unlock |
 
-Every failed job pings `/fail`. Heartbeat steps do nothing when the `HC_PING_KEY` secret is empty and never
-fail a job.
+Mechanism: right before paying, a job pushes a new file `data/odds/claims/claim_<time>_<kind>_r<run>.json`
+to `records` without rebasing. Git accepts the push only as a fast-forward of the commit the job decided from,
+so of two jobs that decided from the same records state only one claim lands. The other fetches, re-decides
+and does not pay. Claims are new files only (records guard checked before every claim push); they never
+change quotes, CLV or any research table.
+
+**Not guaranteed: exactly-once paid collection.** Residual duplicate-credit cases: a paying job whose capture
+never reaches records (then a job after the 20-min TTL may pay again); a job slower than 20 min between claim
+and commit (normal is 1 to 3 min); a late scheduled snapshot and a pregame pull serving the same game window;
+manual runs (a manual `kind` snapshot is never deduplicated). Each costs at most 1 extra credit and stays inside
+the 30-per-week cap and 60-credit reserve.
 
 ## 6. Credential design and GitHub App assessment
 
@@ -153,5 +187,7 @@ Hard limits stay: 30 per NFL week, refuse below 60 remaining, HALT on any pull t
 - The missed-pregame check uses nflverse kickoff times; a kickoff moved at the last minute can be misreported.
 - An expired or revoked token makes every external dispatch fail with 401. cron-job.org failure emails and the
   heartbeats report it; the GitHub cron backup keeps running.
+- Paid-pull claims add a records push before each paid pull. If GitHub rejects or cannot take that push the
+  pull is skipped (fail closed), which can cost a capture during a GitHub git outage.
 - The heartbeat ping key can only send pings. Anyone holding it could send false "OK" pings, which is why the
   GitHub monitor also checks the records directly.
