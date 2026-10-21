@@ -99,7 +99,7 @@ def cmd_analyze(a):
 
 def cmd_odds(a):
     from src.nfl.data.ingest import load_cached_schedules
-    from src.nfl.data.odds_snapshot import PregameNotNeeded, take_snapshot
+    from src.nfl.data.odds_snapshot import SnapshotNotNeeded, take_snapshot
     sched = None
     try:
         sched = load_cached_schedules()
@@ -107,9 +107,13 @@ def cmd_odds(a):
         logging.warning("No cached schedules; snapshot rows will not carry game_id. Run `python run.py data --schedules-only`.")
     targets = json.loads(a.targets) if a.targets else None
     try:
-        summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, targets=targets)
-    except PregameNotNeeded as e:
+        summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, targets=targets,
+                                scheduled_target=a.scheduled_target or None)
+    except SnapshotNotNeeded as e:
         print(json.dumps({"skipped": True, "reason": str(e), "credits_spent": 0}))
+        if a.github_output:
+            with open(a.github_output, "a") as f:
+                f.write("skipped=true\n")
         return
     games = summary.pop("games_for_weather", [])
     if not a.no_weather and sched is not None:
@@ -125,17 +129,29 @@ def cmd_odds(a):
 
 def cmd_schedule_gate(a):
     from datetime import datetime, timezone
-    from src.nfl.market.timing import scheduled_gate
+    from src.nfl.market.timing import forced_target, scheduled_gate
     raw = Path(a.raw_dir)
     names = sorted(p.name for p in raw.glob("totals_*.json")) if raw.exists() else []
-    if a.force_kind:
-        kind, reason = a.force_kind, "forced by workflow_dispatch"
+    now = datetime.now(timezone.utc)
+    if a.force_kind == "manual":
+        kind, reason, target, delay = "manual", "forced manual snapshot (no schedule target)", None, None
+        window_kind = None
+    elif a.force_kind:
+        d = forced_target(a.force_kind, now)
+        kind, reason, target, delay, window_kind = d.kind, d.reason, d.target, d.delay_minutes, d.window_kind
     else:
-        kind, reason = scheduled_gate(datetime.now(timezone.utc), names)
-    print(f"schedule gate: kind={kind} ({reason})")
+        d = scheduled_gate(now, names)
+        kind, reason, target, delay, window_kind = d.kind, d.reason, d.target, d.delay_minutes, d.window_kind
+    from src.nfl.market.phase4_config import DELAYED_THRESHOLD_MIN
+    label = "" if (delay is None or not kind) else (" delayed" if delay > DELAYED_THRESHOLD_MIN else " on-time")
+    print(f"schedule gate: kind={kind or 'none'}{label} ({reason})")
     if a.github_output:
         with open(a.github_output, "a") as f:
             f.write(f"kind={kind or 'none'}\n")
+            f.write(f"target={target.isoformat() if (kind and target) else ''}\n")
+            f.write(f"delay_minutes={'' if (delay is None or not kind) else delay}\n")
+            # heartbeat slug: the scheduled kind whose window this run served (captured now or already)
+            f.write(f"heartbeat={('nfl-' + window_kind.replace('_', '-')) if window_kind else ''}\n")
 
 
 def cmd_phase4_build(a):
@@ -150,11 +166,40 @@ def cmd_predict(a):
 
 
 def cmd_record_results(a):
+    """Settlement: no Odds API request and no Odds API key. Fresh nflverse schedules (scores), then an
+    append-only, idempotent pass over every prediction snapshot (verified finals only)."""
     from src.nfl.data.ingest import fetch_schedules
     from src.nfl.reporting.ledger import record_results, summarize
+    if os.environ.get("ODDS_API_KEY"):
+        logging.info("ODDS_API_KEY is set but settlement never uses it.")
     sched = fetch_schedules()
     n = record_results(sched)
     print(json.dumps({"appended": n, **summarize()}, indent=1))
+
+
+def cmd_monitor(a):
+    """Collection monitor: free, read-only checks of the records branch plus recent workflow runs."""
+    from datetime import datetime, timezone
+    from src.nfl.ops.monitor import run_checks, sync_issues
+    from src.nfl.data.ingest import load_cached_schedules, fetch_schedules
+    try:
+        sched = fetch_schedules()
+    except Exception as e:  # noqa: BLE001
+        logging.warning("schedule refresh failed (%s); using cache", type(e).__name__)
+        sched = load_cached_schedules()
+    runs = json.loads(Path(a.runs_json).read_text()) if a.runs_json and Path(a.runs_json).exists() else []
+    head = None
+    if a.records_head_time:
+        head = datetime.fromisoformat(a.records_head_time.replace("Z", "+00:00"))
+    findings = run_checks(datetime.now(timezone.utc), Path(a.records), sched, runs, head)
+    for f in findings:
+        print(f"::warning title=collection-alert::{f['title']}")
+    created = sync_issues(findings) if a.open_issues else []
+    result = {"findings": [f["key"] for f in findings], "issues_created": created}
+    print(json.dumps(result, indent=1))
+    if a.out:
+        Path(a.out).write_text(json.dumps(result))
+    return 0
 
 
 def cmd_ledger(a):
@@ -241,13 +286,20 @@ def main():
     from src.nfl.market.phase4_config import ALL_KINDS
     kinds = [k for k in ALL_KINDS if k != "legacy_current"]
     s = sub.add_parser("odds"); s.add_argument("--kind", required=True, choices=kinds)
-    s.add_argument("--trigger", default="manual", choices=["schedule", "pregame_planner", "manual", "validation"])
+    s.add_argument("--trigger", default="manual",
+                   choices=["github_cron", "external_dispatch", "manual", "pregame_planner", "validation", "schedule"])
+    s.add_argument("--scheduled-target", help="ISO UTC schedule target this capture serves (from schedule-gate)")
+    s.add_argument("--github-output", help="append skipped=true when the pre-pay re-check found nothing to buy")
     s.add_argument("--targets"); s.add_argument("--no-weather", action="store_true"); s.set_defaults(fn=cmd_odds)
     s = sub.add_parser("schedule-gate"); s.add_argument("--raw-dir", required=True); s.add_argument("--github-output")
     s.add_argument("--force-kind", choices=kinds); s.set_defaults(fn=cmd_schedule_gate)
     s = sub.add_parser("phase4-build"); s.add_argument("--out", default="data/derived/phase4"); s.set_defaults(fn=cmd_phase4_build)
     s = sub.add_parser("predict"); s.add_argument("--season", type=int); s.add_argument("--week", type=int); s.set_defaults(fn=cmd_predict)
     s = sub.add_parser("record-results"); s.set_defaults(fn=cmd_record_results)
+    s = sub.add_parser("settle"); s.set_defaults(fn=cmd_record_results)
+    s = sub.add_parser("monitor"); s.add_argument("--records", required=True); s.add_argument("--runs-json")
+    s.add_argument("--records-head-time"); s.add_argument("--open-issues", action="store_true"); s.add_argument("--out")
+    s.set_defaults(fn=cmd_monitor)
     s = sub.add_parser("ledger"); s.set_defaults(fn=cmd_ledger)
     s = sub.add_parser("data-style"); s.add_argument("--first-season", type=int, default=1999); s.add_argument("--last-season", type=int, default=2022)
     s.add_argument("--force", action="store_true"); s.set_defaults(fn=cmd_data_style)

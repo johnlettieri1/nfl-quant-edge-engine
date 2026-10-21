@@ -1,8 +1,19 @@
-# Weekly totals pipeline (Phase 4). GitHub cron is UTC-only, so every scheduled snapshot has TWO
-# cron lines (one for EDT, one for EST). `run.py schedule-gate` checks America/New_York local time
-# (zoneinfo, DST-automatic) and keeps only the run at/after the ET target; the other exits before
-# any credit is spent. Targets (ET):
-#   tue_scheduled        Tue 10:10 AM  odds + weather + settle last week's results (ledger v2)
+# Weekly totals pipeline (Phase 4, scheduling recovery Oct 2026).
+#
+# TRIGGERS (hybrid): the PRIMARY trigger is an external scheduler (cron-job.org, America/New_York
+# time zone) calling workflow_dispatch with inputs {kind: auto, source: external}. The GitHub cron
+# lines below are the BACKUP (GitHub may start them hours late or drop them). Every run, whatever
+# started it, goes through `run.py schedule-gate` (America/New_York, zoneinfo, DST-automatic):
+#   - each scheduled kind's window runs from its ET target T until min(T + 18 h, the next scheduled
+#     target of any kind); a run inside the window captures unless (kind, T) is already captured;
+#   - a run after the window closes captures nothing (obsolete), so a very late cron never buys a
+#     stale snapshot; duplicates (external + both cron twins + manual) capture at most once;
+#   - the capture keeps its REAL timestamp; T, the delay in minutes and the trigger are recorded
+#     beside it (envelope + every quote row), so a delayed capture never looks on time.
+# take_snapshot re-checks (kind, T) against the restored records right before paying.
+# Settlement moved to .github/workflows/settle.yml (no Odds API key, no credits).
+# Targets (ET):
+#   tue_scheduled        Tue 10:10 AM  odds + weather
 #   thu_scheduled        Thu  9:10 AM  odds + weather + totals prediction snapshot
 #   sat_scheduled        Sat  9:10 AM  odds + weather + totals prediction snapshot
 #   sun_scheduled        Sun  9:10 AM  odds + weather + totals prediction snapshot
@@ -20,7 +31,8 @@
 #      planner pushed in between; both workflows only ADD files there, except this job's predictions index
 #      and ledger, which the planner never touches).
 #
-# Requires repository secret ODDS_API_KEY. Open-Meteo needs no key.
+# Requires repository secret ODDS_API_KEY. Open-Meteo needs no key. Optional secret HC_PING_KEY
+# (healthchecks.io project ping key) sends heartbeats; when it is empty the heartbeat steps do nothing.
 name: Weekly totals
 
 on:
@@ -38,6 +50,11 @@ on:
         default: "auto"
         type: choice
         options: [auto, manual, tue_scheduled, thu_scheduled, sat_scheduled, sun_scheduled, sun_night_scheduled]
+      source:
+        description: "who started this run (the external scheduler sends: external)"
+        default: "manual"
+        type: choice
+        options: [manual, external]
 
 permissions:
   contents: write
@@ -77,6 +94,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Trigger source
+        id: src
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then echo "trigger=github_cron" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.inputs.source }}" = "external" ] && [ "${{ github.event.inputs.kind }}" = "auto" ]; then echo "trigger=external_dispatch" >> "$GITHUB_OUTPUT"
+          else echo "trigger=manual" >> "$GITHUB_OUTPUT"; fi
+
       - name: ET schedule gate (no credits spent)
         id: gate
         working-directory: code
@@ -108,21 +132,19 @@ jobs:
         run: python run.py data --first-season 1999
 
       - name: Odds snapshot + forecast weather
+        id: odds
         if: steps.gate.outputs.kind != 'none'
         working-directory: code
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python run.py odds --kind ${{ steps.gate.outputs.kind }} --trigger ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'schedule' }}
+          SCHED_TARGET: ${{ steps.gate.outputs.target }}
+        run: python run.py odds --kind "${{ steps.gate.outputs.kind }}" --trigger "${{ steps.src.outputs.trigger }}" --scheduled-target "$SCHED_TARGET" --github-output "$GITHUB_OUTPUT"
 
-      # Settlement and predictions spend no credits, so they still run if the odds step was refused
-      # (HALT file, reserve, weekly cap); the job is still marked failed so the refusal is visible.
-      - name: Record results (Tuesday)
-        if: always() && steps.gate.outputs.kind == 'tue_scheduled'
-        working-directory: code
-        run: python run.py record-results
+      # Predictions spend no credits, so they still run if the odds step was refused (HALT file,
+      # reserve, weekly cap); the job is still marked failed so the refusal is visible.
 
       - name: Totals prediction snapshot (Thu/Sat/Sun morning)
-        if: always() && contains(fromJSON('["thu_scheduled","sat_scheduled","sun_scheduled"]'), steps.gate.outputs.kind)
+        if: always() && contains(fromJSON('["thu_scheduled","sat_scheduled","sun_scheduled"]'), steps.gate.outputs.kind) && steps.odds.outputs.skipped != 'true'
         working-directory: code
         run: python run.py predict
 
@@ -160,3 +182,23 @@ jobs:
             git -c user.name="weekly-bot" -c user.email="weekly-bot@users.noreply.github.com" pull --rebase --quiet origin records
           done
           echo "::error title=records::push failed after 3 attempts"; exit 1
+
+      # Heartbeats (healthchecks.io). A success ping means the scheduled window was served: either this
+      # run captured and committed, or the records already held that capture. Ping failures never fail
+      # the job; the ping key travels only as a masked secret in the request path (never a query string).
+      - name: Heartbeat (success)
+        if: success() && steps.gate.outputs.heartbeat != ''
+        env:
+          HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+          SLUG: ${{ steps.gate.outputs.heartbeat }}
+        run: |
+          if [ -n "$HC_PING_KEY" ]; then curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/$HC_PING_KEY/$SLUG" || true; fi
+
+      # A failure before the gate names a window is reported by the monitor (workflow-failure issue).
+      - name: Heartbeat (failure)
+        if: failure() && steps.gate.outputs.heartbeat != ''
+        env:
+          HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+          SLUG: ${{ steps.gate.outputs.heartbeat }}
+        run: |
+          if [ -n "$HC_PING_KEY" ]; then curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/$HC_PING_KEY/$SLUG/fail" || true; fi

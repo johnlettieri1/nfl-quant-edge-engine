@@ -14,6 +14,15 @@
 # Windows cover NFL kickoffs in both EDT and EST, plus dated windows for the 2026 off-day games
 # (Wed Nov 25, Thanksgiving Nov 26, Fri Nov 27, Saturdays in Dec/Jan, Christmas Fri Dec 25).
 # GitHub may delay scheduled runs; the planner labels what actually happened.
+#
+# TRIGGERS (hybrid, scheduling recovery Oct 2026): the PRIMARY trigger is an external scheduler
+# (cron-job.org, America/New_York) calling workflow_dispatch with {source: external} every 5 minutes
+# inside kickoff windows. The */10 GitHub crons below are the BACKUP. Whatever starts it, the gate is
+# free and decides game by game, so an extra or late trigger can never buy a pull outside a valid
+# window or a second pull for a game already quoted in its window. Pull jobs are serialized
+# (concurrency pregame-records) and re-check the plan against fresh records right before paying.
+# When a scheduled full-slate snapshot is due inside a game's window (9:30 AM ET international games
+# vs sun_scheduled 9:10), the planner waits up to 8 minutes for it instead of buying a second pull.
 name: Pregame planner
 
 on:
@@ -32,6 +41,12 @@ on:
     - cron: "*/10 17-23 25 12 *"   # Christmas Fri Dec 25 2026
     - cron: "*/10 0-1 26 12 *"     # Christmas night -> Dec 26 UTC
   workflow_dispatch:
+    inputs:
+      source:
+        description: "who started this run (the external scheduler sends: external)"
+        default: "manual"
+        type: choice
+        options: [manual, external]
 
 permissions:
   contents: write
@@ -105,7 +120,9 @@ jobs:
         working-directory: code
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python run.py odds --kind pregame_window --trigger pregame_planner --targets '${{ needs.gate.outputs.targets }}'
+          TRIGGER: ${{ github.event_name == 'schedule' && 'github_cron' || (github.event.inputs.source == 'external' && 'external_dispatch' || 'manual') }}
+          TARGETS: ${{ needs.gate.outputs.targets }}
+        run: python run.py odds --kind pregame_window --trigger "$TRIGGER" --targets "$TARGETS"
       - name: Copy records
         if: always()
         run: |
@@ -135,3 +152,12 @@ jobs:
             git -c user.name="pregame-bot" -c user.email="pregame-bot@users.noreply.github.com" pull --rebase --quiet origin records
           done
           echo "::error title=records::push failed after 3 attempts"; exit 1
+      - name: Heartbeat
+        if: always()
+        env:
+          HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          [ -z "$HC_PING_KEY" ] && exit 0
+          if [ "$OUTCOME" = "success" ]; then suffix=""; else suffix="/fail"; fi
+          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/$HC_PING_KEY/nfl-pregame$suffix" || true

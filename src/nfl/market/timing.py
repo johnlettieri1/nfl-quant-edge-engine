@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import NamedTuple
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -137,21 +138,78 @@ def _latest_target(kind: str, now: datetime) -> datetime:
     raise AssertionError("unreachable")
 
 
-def scheduled_gate(now: datetime, existing_raw_names: list[str], kinds: tuple[str, ...] | None = None) -> tuple[str | None, str]:
-    """Which scheduled kind (if any) this run should take. Each cron fires twice (EDT and EST UTC
-    hours); only the run at or within SCHEDULE_GATE_TOLERANCE_MIN after the ET target proceeds, and only
-    if that kind has not already been captured for that target (dedupe). Returns (kind or None, reason)."""
+class GateDecision(NamedTuple):
+    """kind is None when nothing should be captured. Indexable like the old (kind, reason) tuple."""
+    kind: str | None
+    reason: str
+    target: datetime | None = None
+    delay_minutes: float | None = None
+    window_end: datetime | None = None
+    window_kind: str | None = None   # the kind whose window is live (captured now OR already captured)
+
+    @property
+    def delayed(self) -> bool:
+        return self.delay_minutes is not None and self.delay_minutes > C.DELAYED_THRESHOLD_MIN
+
+
+def next_scheduled_target(after: datetime) -> datetime:
+    """Earliest scheduled target of ANY kind strictly after `after`."""
+    after = parse_utc(after)
+    local = to_et(after)
+    best = None
+    for kind, (wd, hh, mm) in C.SCHEDULED_KINDS.items():
+        for fwd in range(0, 9):
+            d = local.date() + timedelta(days=fwd)
+            if d.weekday() != wd:
+                continue
+            tgt = datetime.combine(d, time(hh, mm), tzinfo=ET).astimezone(UTC)
+            if tgt > after:
+                best = tgt if best is None or tgt < best else best
+                break
+    return best
+
+
+def late_window(kind: str, target: datetime) -> datetime:
+    """A delayed run of `kind` may still capture until min(target + 18 h, next scheduled target)."""
+    return min(parse_utc(target) + timedelta(minutes=C.SCHEDULE_LATE_MAX_MIN), next_scheduled_target(target))
+
+
+def _captured(existing, kind: str, start: datetime, end: datetime) -> bool:
+    return any(k == kind and start <= ts < end for ts, k in existing)
+
+
+def scheduled_gate(now: datetime, existing_raw_names: list[str], kinds: tuple[str, ...] | None = None) -> GateDecision:
+    """Which scheduled kind (if any) this run should capture, for on-time AND delayed runs.
+
+    For each kind, its latest ET target T (zoneinfo, DST-automatic) is live from T until
+    late_window(kind, T) = min(T + 18 h, next scheduled target of any kind). A run inside that window
+    captures unless that kind already has a snapshot for T (dedupe across GitHub cron, the twin cron,
+    external dispatch and manual runs). A run after the window closes captures nothing for T (obsolete).
+    The capture keeps its real timestamp; T and the delay are returned so they are recorded separately."""
     now = parse_utc(now)
     existing = [p for p in (parse_raw_name(n) for n in existing_raw_names) if p]
+    obsolete = []
     for kind in (kinds or tuple(C.SCHEDULED_KINDS)):
         tgt = _latest_target(kind, now)
-        lag = (now - tgt).total_seconds() / 60.0
-        if not 0 <= lag <= C.SCHEDULE_GATE_TOLERANCE_MIN:
+        end = late_window(kind, tgt)
+        delay = round((now - tgt).total_seconds() / 60.0, 1)
+        if now >= end:
+            obsolete.append(kind)
             continue
-        if any(k == kind and ts >= tgt for ts, k in existing):
-            return None, f"{kind} already captured for target {tgt.isoformat()}"
-        return kind, f"{kind} target {to_et(tgt).isoformat()} lag {lag:.0f} min"
-    return None, f"no scheduled target within {C.SCHEDULE_GATE_TOLERANCE_MIN} min (ET now {to_et(now).isoformat()})"
+        if _captured(existing, kind, tgt, end):
+            return GateDecision(None, f"{kind} already captured for target {to_et(tgt).isoformat()}", tgt, delay, end, kind)
+        label = "delayed" if delay > C.DELAYED_THRESHOLD_MIN else "on time"
+        return GateDecision(kind, f"{kind} target {to_et(tgt).isoformat()} ({label}, {delay:.0f} min after target)",
+                            tgt, delay, end, kind)
+    return GateDecision(None, f"no live scheduled window (ET now {to_et(now).isoformat()}; obsolete: {', '.join(obsolete) or 'none'})")
+
+
+def forced_target(kind: str, now: datetime) -> GateDecision:
+    """For an explicitly chosen kind (manual dispatch): the kind's latest target and the real delay."""
+    now = parse_utc(now)
+    tgt = _latest_target(kind, now)
+    return GateDecision(kind, f"{kind} forced; latest target {to_et(tgt).isoformat()}", tgt,
+                        round((now - tgt).total_seconds() / 60.0, 1), late_window(kind, tgt), kind)
 
 
 # ---- Pregame planner ------------------------------------------------------------------------
@@ -200,6 +258,21 @@ def quote_files(odds_dir) -> list:
     return ([d / "quotes_v2.csv"] if (d / "quotes_v2.csv").exists() else []) + files
 
 
+def _scheduled_due(now: datetime, kickoff: datetime, existing_parsed) -> bool:
+    """True while a scheduled kind whose ET target falls inside this kickoff's T-30..T-10 window is still
+    expected: now is before target + PREGAME_SCHEDULED_DEFER_MIN and that kind has no capture yet."""
+    for kind in C.SCHEDULED_KINDS:
+        tgt = _latest_target(kind, kickoff)
+        if not (C.PREGAME_WINDOW_MIN <= minutes_to_kickoff(tgt, kickoff) <= C.PREGAME_WINDOW_MAX):
+            continue
+        if now >= tgt + timedelta(minutes=C.PREGAME_SCHEDULED_DEFER_MIN):
+            continue
+        if any(k == kind and ts >= tgt for ts, k in existing_parsed):
+            continue
+        return True
+    return False
+
+
 def plan_pregame(now: datetime, events: list[tuple[str, datetime]], existing_raw_names: list[str],
                  credits_used_this_week: int | None = None,
                  coverage: dict[str, list[tuple[datetime, int]]] | None = None) -> PregameDecision:
@@ -219,8 +292,9 @@ def plan_pregame(now: datetime, events: list[tuple[str, datetime]], existing_raw
     coverage = coverage or {}
     if any(n.rsplit("/", 1)[-1].startswith("HALT_") for n in existing_raw_names):
         return PregameDecision(False, "halted: a HALT file exists in data/odds/raw")
-    snaps = [ts for ts, _ in (p for p in (parse_raw_name(n) for n in existing_raw_names) if p)]
-    wanted = []
+    existing_parsed = [p for p in (parse_raw_name(n) for n in existing_raw_names) if p]
+    snaps = [ts for ts, _ in existing_parsed]
+    wanted, deferred = [], []
     for eid, k in sorted({(str(e), parse_utc(k)) for e, k in events}, key=lambda x: (x[1], x[0])):
         mtk = minutes_to_kickoff(now, k)
         if not (C.PREGAME_LATE_MIN <= mtk <= C.PREGAME_WINDOW_MAX):
@@ -234,8 +308,13 @@ def plan_pregame(now: datetime, events: list[tuple[str, datetime]], existing_raw
             continue
         if mtk < C.PREGAME_WINDOW_MIN and attempts >= 1:
             continue  # the single late attempt is only for a game nothing has tried yet
+        if _scheduled_due(now, k, existing_parsed):
+            deferred.append(eid)
+            continue
         wanted.append({"event_id": eid, "kickoff": k.isoformat()})
     if not wanted:
+        if deferred:
+            return PregameDecision(False, f"waiting for a scheduled snapshot due in the window of {len(deferred)} game(s)")
         return PregameDecision(False, "no uncovered game in the pregame window")
     if credits_used_this_week is not None and credits_used_this_week >= C.WEEKLY_CREDIT_CAP:
         return PregameDecision(False, f"weekly credit cap {C.WEEKLY_CREDIT_CAP} reached", wanted)

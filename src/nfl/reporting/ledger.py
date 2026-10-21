@@ -20,14 +20,15 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 
 from src.nfl.data.odds_snapshot import ODDS_DIR, append_rows_atomic, quotes_from_raw
 from src.nfl.market.clv import build_clv_events, edge_bucket
-from src.nfl.market.phase4_config import FORWARD_SEASON_MIN
+from src.nfl.market.phase4_config import FORWARD_SEASON_MIN, SETTLE_MIN_HOURS_AFTER_KICKOFF
+from src.nfl.market.timing import nflverse_kickoff_utc
 from src.nfl.market.line_shopping import build_line_shopping
 from src.nfl.market.movement import apply_game_kickoff, build_movement
 from src.nfl.reporting.legacy_ledger import FIELDS as LEGACY_FIELDS
@@ -112,8 +113,29 @@ def build_rows(snap: dict, snap_file: str, game: dict, actual: float, ev: pd.Dat
     return out
 
 
+def is_verified_final(row, now: datetime) -> bool:
+    """A final score is used only when nflverse reports both scores AND the game's scheduled kickoff
+    (US Eastern, zoneinfo) is at least SETTLE_MIN_HOURS_AFTER_KICKOFF in the past."""
+    if pd.isna(row.get("home_score")) or pd.isna(row.get("away_score")):
+        return False
+    k = settle_reference_kickoff(row)
+    return k is not None and now >= k + timedelta(hours=SETTLE_MIN_HOURS_AFTER_KICKOFF)
+
+
+def settle_reference_kickoff(row) -> datetime | None:
+    """Scheduled kickoff (US Eastern wall clock). Without a gametime, the END of the ET game day is used,
+    so a missing time can only delay settlement, never make it early."""
+    gameday = row.get("gameday")
+    if gameday is None or pd.isna(gameday):
+        return None
+    gt = row.get("gametime")
+    k = nflverse_kickoff_utc(str(gameday)[:10], None if gt is None or pd.isna(gt) else str(gt))
+    return k if k is not None else nflverse_kickoff_utc(str(gameday)[:10], "23:59")
+
+
 def record_results(schedules: pd.DataFrame, pred_dir: Path = PRED_DIR, ledger: Path = LEDGER,
-                   odds_dir: Path = ODDS_DIR, legacy_ledger: Path | None = None) -> int:
+                   odds_dir: Path = ODDS_DIR, legacy_ledger: Path | None = None,
+                   now: datetime | None = None) -> int:
     """Append settled rows for every totals prediction snapshot whose games are final.
 
     Phase 4 snapshots go to totals_ledger_v2.csv (schema unchanged). Pre-spec snapshots (the Oct 15 2026
@@ -121,6 +143,7 @@ def record_results(schedules: pd.DataFrame, pred_dir: Path = PRED_DIR, ledger: P
     (src/nfl/reporting/legacy_ledger.py); they never produce v2 executable-quote rows.
     Returns the total number of rows appended across both files."""
     legacy_ledger = legacy_ledger or ledger.with_name(LEGACY_LEDGER_NAME)
+    now = now or datetime.now(timezone.utc)
     schedules = schedules[schedules.season >= FORWARD_SEASON_MIN]   # Phase 4 is 2026+ only (holdout sealed)
     by_id = schedules.set_index("game_id")
     done = _already(ledger)
@@ -130,7 +153,7 @@ def record_results(schedules: pd.DataFrame, pred_dir: Path = PRED_DIR, ledger: P
     ls = build_line_shopping(quotes) if not quotes.empty else pd.DataFrame()
     mv = build_movement(ls, quotes) if not ls.empty else pd.DataFrame()
     first_line = dict(zip(mv.game_id, mv.first_observed_canonical)) if not mv.empty else {}
-    now = datetime.now(timezone.utc).isoformat()
+    stamp = datetime.now(timezone.utc).isoformat()
     new, new_legacy = [], []
     for path, snap in _pred_snapshots(pred_dir):
         legacy = is_legacy_snapshot(snap)
@@ -139,17 +162,17 @@ def record_results(schedules: pd.DataFrame, pred_dir: Path = PRED_DIR, ledger: P
             if gid not in by_id.index:
                 continue
             row = by_id.loc[gid]
-            if pd.isna(row["home_score"]) or pd.isna(row["away_score"]):
-                continue
+            if not is_verified_final(row, now):
+                continue  # not final yet (or too soon after kickoff); a later settlement run picks it up
             actual = float(row["home_score"] + row["away_score"])
             if legacy:
-                for r in build_legacy_rows(snap, path.name, g, actual, quotes, odds_dir, now):
+                for r in build_legacy_rows(snap, path.name, g, actual, quotes, odds_dir, stamp):
                     key = (path.name, gid, r["variant"])
                     if key not in done_legacy:
                         new_legacy.append(r)
                         done_legacy.add(key)
                 continue
-            for r in build_rows(snap, path.name, g, actual, ev, first_line, now):
+            for r in build_rows(snap, path.name, g, actual, ev, first_line, stamp):
                 key = (path.name, gid, r["variant"])
                 if key in done:
                     continue

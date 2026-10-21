@@ -1,0 +1,105 @@
+# Settlement (scheduling recovery, Oct 2026). Records research results for finished games.
+#
+#   - Spends NO Odds API credits and never receives the Odds API key (the secret is not referenced anywhere in this file).
+#   - Reads final scores from nflverse (free) and settles a game only when both scores are present AND
+#     its scheduled kickoff is at least 5 hours in the past (verified finals only).
+#   - Append-only and idempotent: one row per (prediction snapshot, game, variant), never duplicated,
+#     never rewritten, so re-running (Wednesday/Thursday retries, duplicate triggers) is always safe
+#     and late-arriving finals are picked up by the next run.
+#   - Writes ONLY data/predictions/totals_ledger_v2.csv and totals_ledger_legacy_pre_spec.csv; the
+#     records guard rejects any other change (and any rewrite of already-recorded rows, such as Week 6).
+#
+# TRIGGERS: primary = external scheduler (cron-job.org) Tue/Wed/Thu 10:30 AM ET; backup = the GitHub
+# crons below (both EDT and EST hours; duplicates are harmless because settlement is idempotent);
+# plus manual "Run workflow".
+name: Settlement
+
+on:
+  schedule:
+    - cron: "30 14 * * 2,3,4"   # 10:30 AM EDT Tue/Wed/Thu
+    - cron: "30 15 * * 2,3,4"   # 10:30 AM EST Tue/Wed/Thu
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "who started this run (the external scheduler sends: external)"
+        default: "manual"
+        type: choice
+        options: [manual, external]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: settle-records
+  cancel-in-progress: false
+
+jobs:
+  settle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source (main, read-only use)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: code
+          persist-credentials: false
+
+      - name: Check out records branch
+        run: |
+          git clone --quiet "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" records
+          git -C records checkout records
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        working-directory: code
+        run: pip install -e .
+
+      - name: Restore prior records (read-only inputs + both ledgers)
+        run: |
+          mkdir -p code/data/odds code/data/predictions
+          cp -a records/data/odds/. code/data/odds/ 2>/dev/null || true
+          cp -a records/data/predictions/. code/data/predictions/ 2>/dev/null || true
+
+      - name: Settle verified finals (no credits, no Odds API key)
+        working-directory: code
+        run: python run.py settle
+
+      - name: Copy ledgers only
+        run: |
+          for f in totals_ledger_v2.csv totals_ledger_legacy_pre_spec.csv; do
+            if [ -f "code/data/predictions/$f" ]; then cp "code/data/predictions/$f" "records/data/predictions/$f"; fi
+          done
+
+      - name: Guard (append-only ledgers, records-only paths, no secrets)
+        id: guard
+        run: |
+          find records/data -name '.tmp-*' -type f -print -delete
+          git -C records add -A
+          python code/src/nfl/ops/records_guard.py --repo records
+          git -C records diff --cached --stat
+
+      - name: Commit and push to records
+        if: steps.guard.outcome == 'success'
+        working-directory: records
+        run: |
+          git -c user.name="settle-bot" -c user.email="settle-bot@users.noreply.github.com" \
+            commit -q -m "records: settlement $(date -u +%Y-%m-%dT%H:%MZ)" || { echo "nothing new to settle"; exit 0; }
+          for i in 1 2 3; do
+            if git push origin HEAD:refs/heads/records; then exit 0; fi
+            # only this workflow writes the ledgers, so a concurrent snapshot commit rebases cleanly
+            git -c user.name="settle-bot" -c user.email="settle-bot@users.noreply.github.com" pull --rebase --quiet origin records
+          done
+          echo "::error title=records::push failed after 3 attempts"; exit 1
+
+      - name: Heartbeat
+        if: always()
+        env:
+          HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          [ -z "$HC_PING_KEY" ] && exit 0
+          if [ "$OUTCOME" = "success" ]; then suffix=""; else suffix="/fail"; fi
+          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/$HC_PING_KEY/nfl-settle$suffix" || true
