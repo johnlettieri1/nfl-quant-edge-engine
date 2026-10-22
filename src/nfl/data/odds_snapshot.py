@@ -45,8 +45,8 @@ from src.nfl.data.team_mapping import to_nflverse_code
 from src.nfl.market import phase4_config as C
 from src.nfl.market.books import request_bookmakers
 from src.nfl.market.timing import (ET, UTC, coverage_from_quote_csvs, et_date, is_pregame, minutes_to_kickoff,
-                                   nflverse_kickoff_utc, parse_raw_name, parse_utc, plan_pregame, pulls_this_week,
-                                   quote_files, resolve_game_kickoff, snapshot_ts)
+                                   late_window, nflverse_kickoff_utc, parse_raw_name, parse_utc, plan_pregame,
+                                   pulls_this_week, quote_files, resolve_game_kickoff, snapshot_ts)
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,11 @@ QUOTE_FIELDS = ["snapshot_id", "snapshot_ts_utc", "snapshot_kind", "event_id", "
                 "home_team", "away_team", "commence_time_utc_as_reported", "kickoff_nflverse_utc", "kickoff_utc_resolved",
                 "kickoff_source", "kickoff_status", "kickoff_conflict_minutes", "kickoff_et",
                 "minutes_to_kickoff", "is_pregame", "book", "total_line", "over_price", "under_price",
-                "book_last_update", "quote_age_minutes", "raw_file", "response_sha256"]
+                "book_last_update", "quote_age_minutes", "raw_file", "response_sha256",
+                # snapshot timing provenance (scheduling recovery): real capture time is snapshot_ts_utc;
+                # the intended schedule target and delay are kept separately, never substituted for it
+                "trigger", "scheduled_target_utc", "schedule_delay_minutes", "delayed"]
+TIMING_FIELDS = ("trigger", "scheduled_target_utc", "schedule_delay_minutes", "delayed")
 
 
 class BudgetError(RuntimeError):
@@ -70,8 +74,16 @@ class CostAnomalyError(RuntimeError):
     """The API charged more than the approved plan expects. The raw response is already saved."""
 
 
-class PregameNotNeeded(RuntimeError):
+class SnapshotNotNeeded(RuntimeError):
+    """Re-check right before paying found nothing to buy. No credit was spent."""
+
+
+class PregameNotNeeded(SnapshotNotNeeded):
     """Re-check right before paying: every target kickoff is already covered, too close, or past."""
+
+
+class ScheduledNotNeeded(SnapshotNotNeeded):
+    """Re-check right before paying: this scheduled target already has a capture, or its window closed."""
 
 
 # ---- matching -------------------------------------------------------------------------------
@@ -106,9 +118,11 @@ def _nflverse_kickoff(game_id: str | None, schedules: pd.DataFrame | None):
 # ---- parsing --------------------------------------------------------------------------------
 
 def parse_quotes(raw_games: list[dict], snapshot_id: str, snapshot_dt: datetime, kind: str,
-                 schedules: pd.DataFrame | None, raw_file: str, sha: str) -> list[dict]:
+                 schedules: pd.DataFrame | None, raw_file: str, sha: str, timing: dict | None = None) -> list[dict]:
     """Pure parsing: one row per (game, book) with a valid paired two-way total. A book whose Over
-    and Under points differ, or that lacks either side, is skipped (never patched)."""
+    and Under points differ, or that lacks either side, is skipped (never patched). `timing` carries the
+    snapshot's trigger / scheduled target / delay (blank for snapshots taken before these were recorded)."""
+    timing = {k: (timing or {}).get(k) for k in TIMING_FIELDS}
     rows = []
     for g in raw_games:
         home, away = to_nflverse_code(g["home_team"]), to_nflverse_code(g["away_team"])
@@ -147,7 +161,7 @@ def parse_quotes(raw_games: list[dict], snapshot_id: str, snapshot_dt: datetime,
                     "book": book["key"], "total_line": float(over["point"]),
                     "over_price": int(over["price"]), "under_price": int(under["price"]),
                     "book_last_update": lu, "quote_age_minutes": age,
-                    "raw_file": raw_file, "response_sha256": sha,
+                    "raw_file": raw_file, "response_sha256": sha, **timing,
                 })
     return rows
 
@@ -269,8 +283,21 @@ def _csv_bytes(rows: list[dict], fields: list[str]) -> bytes:
 
 def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | None = None,
                   odds_dir: Path = ODDS_DIR, targets: list[dict] | None = None,
-                  now: datetime | None = None, preflight: bool = True) -> dict:
-    """Budget preflight (free) -> one paid pull -> raw v2 envelope -> paired quotes rows."""
+                  now: datetime | None = None, preflight: bool = True,
+                  scheduled_target: str | None = None, claim_id: str | None = None) -> dict:
+    """Budget preflight (free) -> one paid pull -> raw v2 envelope -> paired quotes rows.
+
+    scheduled_target: the ET schedule target this capture serves (scheduled kinds). The capture's own
+    timestamp is the real fetch time; the target and the delay are recorded beside it, never instead of it."""
+    if trigger not in C.TRIGGERS:
+        raise ValueError(f"invalid trigger {trigger}")
+    if claim_id:
+        # the paid-pull claim this capture fulfils (src/nfl/ops/claims.py); written into the raw envelope so
+        # the claim is resolved by THIS capture only, never by an unrelated capture of the same kind
+        from src.nfl.ops.claims import CLAIM_ID_RE
+        m = CLAIM_ID_RE.match(str(claim_id))
+        if not m or m.group(1) != kind:
+            raise ValueError(f"claim id {claim_id!r} does not match a {kind} claim")
     if kind not in C.ALL_KINDS or kind == "legacy_current":
         raise ValueError(f"invalid snapshot kind {kind}")
     names = raw_names(odds_dir)
@@ -287,6 +314,19 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
         d = plan_pregame(now, events, names, coverage=cov)
         if not d.pull:
             raise PregameNotNeeded(d.reason)
+    if scheduled_target and parse_utc(scheduled_target) > now:
+        # checked BEFORE paying: a capture is never labeled with a target that has not happened yet
+        raise ValueError("scheduled target is after the capture time; a capture is never backdated or pre-dated")
+    if kind in C.SCHEDULED_KINDS and scheduled_target:
+        # Same idea for scheduled kinds: the gate decided before install/data refresh, and a duplicate
+        # trigger (external dispatch + GitHub cron twin + manual) may have committed in between. The
+        # records restored into odds_dir are re-read here; at most one capture per (kind, target).
+        tgt0 = parse_utc(scheduled_target)
+        end0 = late_window(kind, tgt0)
+        if any(k == kind and tgt0 <= ts < end0 for ts, k in (p for p in (parse_raw_name(n) for n in names) if p)):
+            raise ScheduledNotNeeded(f"{kind} already captured for target {tgt0.isoformat()}")
+        if now >= end0 and trigger != "manual":
+            raise ScheduledNotNeeded(f"{kind} window for target {tgt0.isoformat()} closed at {end0.isoformat()} (obsolete)")
     balance = None
     if preflight:
         halts = halt_files(odds_dir)
@@ -298,14 +338,28 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
         balance = fetch_balance()
         if balance["remaining"] is None:
             raise BudgetError("credit balance header missing; refusing to pull (fail closed)")
-        if balance["remaining"] < C.CREDIT_RESERVE:
-            raise BudgetError(f"credit reserve: {balance['remaining']} remaining < reserve {C.CREDIT_RESERVE}")
+        # The reserve must still be intact AFTER a normal pull: pay only if remaining - expected >= reserve
+        # (with reserve 60 and 1 credit per pull: 61 or more remaining). A provider charge above the expected
+        # 1 credit cannot be prevented by a balance check made before the request; it is detected from the
+        # response headers afterwards (HALT file, all further pulls refused).
+        after = balance["remaining"] - C.EXPECTED_CREDITS_PER_PULL
+        if after < C.CREDIT_RESERVE:
+            raise BudgetError(f"credit reserve: {balance['remaining']} remaining would leave {after} after this pull "
+                              f"(reserve {C.CREDIT_RESERVE} must remain)")
     res = fetch_totals_raw(request_bookmakers())
     body: bytes = res.pop("body")
     sha = hashlib.sha256(body).hexdigest()
     fetched = parse_utc(res["fetched_at"])
     ts = snapshot_ts(fetched)
+    tgt = parse_utc(scheduled_target) if scheduled_target else None
+    delay = None if tgt is None else round((fetched - tgt).total_seconds() / 60.0, 1)
+    # delay is measured from the API's own fetch time; a few seconds of runner/API clock skew can make it
+    # slightly negative, which is recorded as measured (the data is already paid for and is kept)
+    timing = {"trigger": trigger, "scheduled_target_utc": tgt.isoformat() if tgt else None,
+              "schedule_delay_minutes": delay,
+              "delayed": None if delay is None else bool(delay > C.DELAYED_THRESHOLD_MIN)}
     envelope = {"schema_version": RAW_SCHEMA, "snapshot_id": f"{ts}_{kind}", "snapshot_kind": kind, "trigger": trigger,
+                "claim_id": claim_id or None, "capture_ts_utc": fetched.isoformat(), **{k: timing[k] for k in TIMING_FIELDS if k != "trigger"},
                 **res, "preflight_balance": balance, "spec_version": C.SPEC_VERSION,
                 "code_sha": os.environ.get("GITHUB_SHA"), "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
                 "targets": targets or [], "response_sha256": sha,
@@ -324,10 +378,11 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
             {"snapshot_id": snapshot_id, "x_requests_last": last, "expected": C.EXPECTED_CREDITS_PER_PULL,
              "note": "All further pulls are refused until John approves removing this file."}, indent=1).encode())
     games = json.loads(body)
-    rows = parse_quotes(games, snapshot_id, fetched, kind, schedules, raw_path.name, sha)
+    rows = parse_quotes(games, snapshot_id, fetched, kind, schedules, raw_path.name, sha, timing)
     if rows:
         write_exclusive(odds_dir / QUOTES_DIR / f"quotes_{snapshot_id}.csv", _csv_bytes(rows, QUOTE_FIELDS))
-    summary = {"snapshot_id": snapshot_id, "kind": kind, "raw_path": str(raw_path), "games": len(games),
+    summary = {"snapshot_id": snapshot_id, "kind": kind, "raw_path": str(raw_path), "claim_id": claim_id or None,
+               "games": len(games), **timing,
                "quote_rows": len(rows), "unmatched_games": len({r["event_id"] for r in rows if r["game_id"] is None}),
                "books_returned": sorted({r["book"] for r in rows}), "x_requests_last": last,
                "x_requests_remaining": res.get("x_requests_remaining")}
@@ -354,14 +409,15 @@ def iter_raw_snapshots(odds_dir: Path = ODDS_DIR):
             yield {"snapshot_id": name[len("totals_"):-len(".json")], "snapshot_dt": parse_utc(env["fetched_at"]),
                    "kind": env["snapshot_kind"], "raw_file": name, "sha": env["response_sha256"],
                    "hash_basis": "response_bytes", "hash_ok": hashlib.sha256(body).hexdigest() == env["response_sha256"],
-                   "http_status": env["http_status"], "games": json.loads(body) if env["http_status"] == 200 else []}
+                   "http_status": env["http_status"], "games": json.loads(body) if env["http_status"] == 200 else [],
+                   "timing": {k: env.get(k) for k in TIMING_FIELDS}}
         else:  # Phase 2B v1 envelope (one file, Oct 15 2026): original bytes were not kept
             games = env.get("games", [])
             sha = hashlib.sha256(json.dumps(games, sort_keys=True).encode("utf-8")).hexdigest()
             yield {"snapshot_id": f"{parsed[0].strftime('%Y%m%dT%H%M%SZ')}_legacy_current",
                    "snapshot_dt": parse_utc(env["fetched_at"]), "kind": "legacy_current", "raw_file": name,
                    "sha": sha, "hash_basis": "reserialized_games_json", "hash_ok": None, "http_status": 200,
-                   "games": games}
+                   "games": games, "timing": {}}
 
 
 def quotes_from_raw(odds_dir: Path = ODDS_DIR, schedules: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -370,7 +426,7 @@ def quotes_from_raw(odds_dir: Path = ODDS_DIR, schedules: pd.DataFrame | None = 
         if snap["http_status"] != 200:
             continue
         rows += parse_quotes(snap["games"], snap["snapshot_id"], snap["snapshot_dt"], snap["kind"], schedules,
-                             snap["raw_file"], snap["sha"])
+                             snap["raw_file"], snap["sha"], snap.get("timing"))
     return pd.DataFrame(rows, columns=QUOTE_FIELDS)
 
 

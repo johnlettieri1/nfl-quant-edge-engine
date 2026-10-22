@@ -14,7 +14,7 @@ HOLDOUT_SEASONS = (2023, 2024, 2025)
 # ---- Odds API -------------------------------------------------------------------------------
 ODDS_MARKET = "totals"
 EXPECTED_CREDITS_PER_PULL = 1      # 1 market x up to 10 named books
-CREDIT_RESERVE = 60                # refuse a paid pull when remaining credits are below this
+CREDIT_RESERVE = 60                # at least this many credits must remain AFTER a normal pull (pay only at 61+)
 WEEKLY_CREDIT_CAP = 30             # refuse a paid pull after this many pulls in the NFL week (Tue 00:00 ET start)
 
 # ---- Snapshot kinds -------------------------------------------------------------------------
@@ -27,7 +27,13 @@ SCHEDULED_KINDS = {
     "sun_scheduled": (6, 9, 10),
     "sun_night_scheduled": (6, 23, 30),
 }
-SCHEDULE_GATE_TOLERANCE_MIN = 120  # accept a run up to 2h after the ET target (Actions delay)
+SCHEDULE_GATE_TOLERANCE_MIN = 120  # legacy constant (pre-incident); no longer used by the gate
+# Late-snapshot policy (scheduling recovery, approved Oct 2026): a delayed scheduled run still captures
+# until the EARLIER of (target + 18 h) and the NEXT scheduled target of any kind. The capture keeps its
+# real timestamp; the intended target and the delay are recorded separately (never backdated).
+SCHEDULE_LATE_MAX_MIN = 18 * 60
+DELAYED_THRESHOLD_MIN = 15         # captures more than 15 min after target are labeled delayed
+TRIGGERS = ("github_cron", "external_dispatch", "manual", "pregame_planner", "validation", "schedule")
 OTHER_KINDS = ("pregame_window", "manual", "legacy_current")
 ALL_KINDS = tuple(SCHEDULED_KINDS) + OTHER_KINDS
 PREDICTION_KINDS = ("thu_scheduled", "sat_scheduled", "sun_scheduled")   # unchanged cadence
@@ -40,6 +46,14 @@ PREGAME_WINDOW_MAX = 30
 PREGAME_LATE_MIN = 5               # one late attempt allowed down to T-5, never after kickoff
 PREGAME_MAX_ATTEMPTS_PER_SLOT = 2
 PREGAME_ATTEMPT_LOOKBACK_MIN = 40  # snapshots within 40 min before a kickoff count as attempts for it
+# Scheduling recovery: when a scheduled full-slate snapshot is due inside a game's T-30..T-10 window
+# (e.g. a 9:30 AM ET international game and sun_scheduled at 9:10), the planner waits up to 8 min after
+# that target for it instead of buying a second pull for the same game; if it has not landed, the planner
+# pulls as usual (still inside the window, never after kickoff).
+PREGAME_SCHEDULED_DEFER_MIN = 8
+# Paid-pull claims (Safeguard 3): a job records its intent on `records` (push without rebase) right before
+# paying; an unresolved claim blocks other jobs for this many minutes, then expires on its own (no lock).
+CLAIM_TTL_MIN = 20
 
 # ---- Kickoff resolution -----------------------------------------------------------------------
 KICKOFF_AGREE_TOL_MIN = 5          # Odds API and nflverse kickoffs within 5 min = agreed (verified)
@@ -47,6 +61,16 @@ KICKOFF_AGREE_TOL_MIN = 5          # Odds API and nflverse kickoffs within 5 min
 # ---- Close-quality rule ---------------------------------------------------------------------
 CLOSE_QUALITY_MAX_MIN = 30         # last_observed_pregame taken 0-30 min before kickoff (strictly before)
 CLOSE_QUALITY_MIN_BOOKS = 5        # and the game's kickoff must be RESOLVED (both sources agree)
+
+# ---- Settlement -------------------------------------------------------------------------------
+SETTLE_MIN_HOURS_AFTER_KICKOFF = 5 # a final score is used only once nflverse has it AND kickoff + 5 h has passed
+
+# ---- Monitoring -------------------------------------------------------------------------------
+MONITOR_START_UTC = "2026-10-22T00:00:00+00:00"   # alerts only for targets/kickoffs after the recovery deploy
+MONITOR_LOOKBACK_DAYS = 8
+SETTLE_ALERT_HOURS = 36            # a predicted, final game still unsettled 36 h after kickoff is an alert
+RECORDS_STALE_HOURS = 50           # in season, no records commit for 50 h is an alert
+ALERT_LABEL = "collection-alert"
 
 # ---- Line shopping / CLV --------------------------------------------------------------------
 STALE_QUOTE_MIN = 360

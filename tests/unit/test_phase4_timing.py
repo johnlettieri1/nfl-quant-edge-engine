@@ -38,7 +38,11 @@ def test_schedule_gate_keeps_only_the_right_dst_run():
     # Sunday 11:30 PM ET crosses into Monday UTC in both seasons
     assert T.scheduled_gate(datetime(2026, 10, 19, 3, 31, tzinfo=UTC), [])[0] == "sun_night_scheduled"
     assert T.scheduled_gate(datetime(2026, 11, 9, 4, 31, tzinfo=UTC), [])[0] == "sun_night_scheduled"
-    assert T.scheduled_gate(datetime(2026, 11, 9, 3, 31, tzinfo=UTC), [])[0] is None   # 10:31 PM EST: too early
+    # 10:31 PM EST Sunday: too early for sun_night; under the late-snapshot policy this is a DELAYED
+    # sun_scheduled capture if (and only if) the 9:10 AM one never landed
+    d = T.scheduled_gate(datetime(2026, 11, 9, 3, 31, tzinfo=UTC), [])
+    assert d.kind == "sun_scheduled" and d.delayed and d.delay_minutes == 801.0
+    assert T.scheduled_gate(datetime(2026, 11, 9, 3, 31, tzinfo=UTC), ["totals_20261108T141200Z_sun_scheduled.json"])[0] is None
 
 
 def test_schedule_gate_falls_back_when_first_run_dropped():

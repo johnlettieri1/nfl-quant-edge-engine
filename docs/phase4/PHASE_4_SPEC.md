@@ -204,7 +204,7 @@ GitHub cron runs in UTC only, supports every 5 minutes at best, and scheduled ru
 
 | Kind | ET target | Purpose |
 |---|---|---|
-| `tue_scheduled` | Tue 10:10 AM | Usually `first_observed` for next week's games; settle last week |
+| `tue_scheduled` | Tue 10:10 AM | Usually `first_observed` for next week's games (settlement now runs separately, see SCHEDULING_RECOVERY_SPEC.md) |
 | `thu_scheduled` | Thu 9:10 AM | Intermediate |
 | `sat_scheduled` | Sat 9:10 AM | Intermediate |
 | `sun_scheduled` | Sun 9:10 AM | Intermediate |
@@ -471,3 +471,9 @@ Every line-shopping (Gate B) and CLV (Gate C) table shows three blocks: (1) NY-a
 - All live Odds API and Open-Meteo calls run inside GitHub Actions; the development environment cannot reach either host.
 - Credit accounting updated: 3 credits used before Phase 4 collection (1 pre-spec snapshot, 2 probe). 497 remaining at amendment time.
 - Limitations added: Caesars and Fanatics absent (two of the largest NY books), so NY-actionable best-line frequencies are a lower bound on what a NY bettor with all nine licensed books could find; Resorts World Bet has no Odds API key; Pinnacle quotes are delayed and partial.
+
+## Amendment A2: scheduling recovery (approved Oct 21 2026)
+
+Triggers, late-snapshot tolerance, independent settlement and monitoring are specified in
+`docs/phase4/SCHEDULING_RECOVERY_SPEC.md`; setup steps are in `docs/phase4/EXTERNAL_SCHEDULER_SETUP.md`.
+Scheduled targets, credit limits, pregame window rules and all research constants above are unchanged.

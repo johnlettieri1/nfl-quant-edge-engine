@@ -1,0 +1,91 @@
+# Collection monitor (scheduling recovery, Oct 2026). Free and read-only for records: no Odds API key,
+# no credits, never writes to the records branch.
+#
+# "A dispatch accepted by GitHub is not proof that collection completed." So this checks the records
+# themselves: missed scheduled snapshots (after their late window closed), missed pregame windows by
+# game, final games left unsettled 36 h after kickoff, any HALT file, failed Weekly / Pregame /
+# Settlement / Monitor runs in the last 26 h, and no records commit for 50 h in season.
+#
+# Alerts:
+#   1. GitHub issue per finding, label `collection-alert`, one issue per finding key, never duplicated
+#      (an existing issue with the same title, open or closed, is never re-created).
+#   2. Direct external alert (healthchecks.io check `nfl-monitor`): a clean run pings success, a run with
+#      findings or an error pings /fail, and a monitor that GitHub never starts misses its ping. In each
+#      case healthchecks.io emails John directly, once per state change, without depending on GitHub.
+#
+# TRIGGERS: primary = external scheduler twice daily (8:00 AM and 8:00 PM ET); backup = GitHub crons.
+name: Collection monitor
+
+on:
+  schedule:
+    - cron: "15 0,12 * * *"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "who started this run (the external scheduler sends: external)"
+        default: "manual"
+        type: choice
+        options: [manual, external]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: collection-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source (main, read-only use)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: code
+          persist-credentials: false
+
+      - name: Check out records branch (read-only)
+        run: |
+          git clone --quiet --branch records "https://github.com/${{ github.repository }}.git" records
+          echo "RECORDS_HEAD_TIME=$(git -C records log -1 --format=%cI)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        working-directory: code
+        run: pip install -e .
+
+      - name: Recent workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --repo "${{ github.repository }}" --limit 100 \
+            --json workflowName,conclusion,createdAt,databaseId,url,event > runs.json
+
+      - name: Checks + de-duplicated alert issues
+        id: checks
+        working-directory: code
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python run.py monitor --records ../records --runs-json ../runs.json \
+            --records-head-time "$RECORDS_HEAD_TIME" --open-issues --out ../monitor.json
+          python -c "import json,sys; d=json.load(open('../monitor.json')); print('findings=' + str(len(d['findings'])))" >> "$GITHUB_OUTPUT"
+
+      - name: Heartbeat (direct external alert)
+        if: always()
+        env:
+          HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+          OUTCOME: ${{ job.status }}
+          FINDINGS: ${{ steps.checks.outputs.findings }}
+        run: |
+          [ -z "$HC_PING_KEY" ] && exit 0
+          if [ "$OUTCOME" = "success" ] && [ "${FINDINGS:-1}" = "0" ]; then suffix=""; else suffix="/fail"; fi
+          body="findings=${FINDINGS:-unknown} status=$OUTCOME run=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "$body" "https://hc-ping.com/$HC_PING_KEY/nfl-monitor$suffix" || true

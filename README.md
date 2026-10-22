@@ -11,7 +11,8 @@ python run.py data                 # schedules + incremental play-by-play cache 
 python run.py baseline --compare-to <frozen Phase 2A dir>   # reproduce the frozen Ridge baseline, must be identical
 python run.py odds --tag opener    # per-book totals snapshot (Tuesday); --tag current / pregame on game days
 python run.py predict              # immutable totals snapshot for the next week (data/predictions/totals_*.json)
-python run.py record-results       # settle finished games into data/predictions/totals_ledger.csv with CLV
+python run.py settle               # settle verified finals into the ledgers (no Odds API key, no credits)
+python run.py monitor --records <records checkout>   # collection checks (missed snapshots/windows, settlement, HALT)
 python run.py test                 # unit + leakage + property tests
 ```
 

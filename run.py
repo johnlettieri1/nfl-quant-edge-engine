@@ -15,7 +15,8 @@ the script changes into the repo root so relative data/ paths resolve.
   python run.py odds --kind KIND [--trigger T] [--targets JSON] [--no-weather]
       Phase 4: one per-book totals snapshot (1 credit, frozen 10-book list) plus the forecast-weather
       capture linked to it. KIND: tue_scheduled, thu_scheduled, sat_scheduled, sun_scheduled,
-      sun_night_scheduled, pregame_window, manual. Budget preflight refuses below the credit reserve.
+      sun_night_scheduled, pregame_window, manual. Budget preflight refuses unless the credit reserve
+      remains intact after the pull.
   python run.py schedule-gate --raw-dir DIR [--github-output FILE] [--force-kind KIND]
       Phase 4: decide which scheduled snapshot kind (if any) this cron run should take (ET, DST-safe).
   python run.py phase4-build [--out data/derived/phase4]
@@ -99,7 +100,7 @@ def cmd_analyze(a):
 
 def cmd_odds(a):
     from src.nfl.data.ingest import load_cached_schedules
-    from src.nfl.data.odds_snapshot import PregameNotNeeded, take_snapshot
+    from src.nfl.data.odds_snapshot import SnapshotNotNeeded, take_snapshot
     sched = None
     try:
         sched = load_cached_schedules()
@@ -107,10 +108,20 @@ def cmd_odds(a):
         logging.warning("No cached schedules; snapshot rows will not carry game_id. Run `python run.py data --schedules-only`.")
     targets = json.loads(a.targets) if a.targets else None
     try:
-        summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, targets=targets)
-    except PregameNotNeeded as e:
+        summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, targets=targets,
+                                scheduled_target=a.scheduled_target or None, claim_id=a.claim_id or None)
+    except SnapshotNotNeeded as e:
         print(json.dumps({"skipped": True, "reason": str(e), "credits_spent": 0}))
+        if a.github_output:
+            reason = "already_captured" if "already captured" in str(e) else (
+                "obsolete" if "obsolete" in str(e) else "not_needed")
+            with open(a.github_output, "a") as f:
+                f.write(f"skipped=true\nskip_reason={reason}\n")
         return
+    if a.github_output:
+        # the raw file this paid pull wrote; the workflow verifies it is on the remote records branch
+        with open(a.github_output, "a") as f:
+            f.write(f"raw_file={Path(summary['raw_path']).name}\n")
     games = summary.pop("games_for_weather", [])
     if not a.no_weather and sched is not None:
         # Weather never blocks the odds record: the paid odds snapshot is already saved at this point.
@@ -125,17 +136,57 @@ def cmd_odds(a):
 
 def cmd_schedule_gate(a):
     from datetime import datetime, timezone
-    from src.nfl.market.timing import scheduled_gate
+    from src.nfl.market.timing import forced_target, scheduled_gate
     raw = Path(a.raw_dir)
     names = sorted(p.name for p in raw.glob("totals_*.json")) if raw.exists() else []
-    if a.force_kind:
-        kind, reason = a.force_kind, "forced by workflow_dispatch"
+    now = datetime.now(timezone.utc)
+    if a.force_kind == "manual":
+        kind, reason, target, delay = "manual", "forced manual snapshot (no schedule target)", None, None
+        window_kind = None
+    elif a.force_kind:
+        d = forced_target(a.force_kind, now)
+        kind, reason, target, delay, window_kind = d.kind, d.reason, d.target, d.delay_minutes, d.window_kind
     else:
-        kind, reason = scheduled_gate(datetime.now(timezone.utc), names)
-    print(f"schedule gate: kind={kind} ({reason})")
+        d = scheduled_gate(now, names)
+        kind, reason, target, delay, window_kind = d.kind, d.reason, d.target, d.delay_minutes, d.window_kind
+    from src.nfl.market.phase4_config import DELAYED_THRESHOLD_MIN
+    label = "" if (delay is None or not kind) else (" delayed" if delay > DELAYED_THRESHOLD_MIN else " on-time")
+    print(f"schedule gate: kind={kind or 'none'}{label} ({reason})")
     if a.github_output:
         with open(a.github_output, "a") as f:
             f.write(f"kind={kind or 'none'}\n")
+            f.write(f"target={target.isoformat() if (kind and target) else ''}\n")
+            f.write(f"delay_minutes={'' if (delay is None or not kind) else delay}\n")
+            # heartbeat slug: the scheduled kind whose window this run served (captured now or already)
+            f.write(f"heartbeat={('nfl-' + window_kind.replace('_', '-')) if window_kind else ''}\n")
+
+
+def cmd_claim(a):
+    """Record a paid-pull claim on the records branch (compare-and-swap push) right before paying.
+    Prints/outputs pay=true only when THIS job's claim is on the remote branch."""
+    from datetime import datetime, timezone
+    from src.nfl.ops import claims as CL
+    now_fn = lambda: datetime.now(timezone.utc)  # noqa: E731
+    if a.mode == "scheduled":
+        d = CL.claim_with_cas(Path(a.repo), lambda od: CL.decide_scheduled(now_fn(), a.kind, a.target, od, a.trigger),
+                              lambda d: {"scheduled_target": a.target, "event_ids": [], "trigger": a.trigger},
+                              now_fn, a.run_id, a.kind)
+    else:
+        targets = json.loads(a.targets or "[]")
+        d = CL.claim_with_cas(Path(a.repo), lambda od: CL.decide_pregame(now_fn(), targets, od),
+                              lambda d: {"scheduled_target": None, "event_ids": [t["event_id"] for t in d.targets],
+                                         "trigger": a.trigger},
+                              now_fn, a.run_id, "pregame_window")
+    if d.pay:
+        CL.refresh_odds_dir(Path(a.repo), Path(a.odds_dir))
+    print(json.dumps({"pay": d.pay, "state": d.state, "reason": d.reason, "claim": d.claim_file, "targets": d.targets}))
+    if a.github_output:
+        with open(a.github_output, "a") as f:
+            f.write(f"pay={'true' if d.pay else 'false'}\nstate={d.state}\nclaim={d.claim_file or ''}\n")
+            f.write(f"claim_id={CL.claim_id_of(d.claim_file) if d.claim_file else ''}\n")
+            f.write(f"targets={json.dumps(d.targets)}\n")
+    if d.state == "claim_failed":
+        sys.exit(1)
 
 
 def cmd_phase4_build(a):
@@ -150,11 +201,59 @@ def cmd_predict(a):
 
 
 def cmd_record_results(a):
+    """Settlement: no Odds API request and no Odds API key. Fresh nflverse schedules (scores), then an
+    append-only, idempotent pass over every prediction snapshot (verified finals only)."""
     from src.nfl.data.ingest import fetch_schedules
     from src.nfl.reporting.ledger import record_results, summarize
+    if os.environ.get("ODDS_API_KEY"):
+        logging.info("ODDS_API_KEY is set but settlement never uses it.")
+    from datetime import datetime, timezone
+    as_of = (datetime.fromisoformat(a.as_of.replace("Z", "+00:00")) if getattr(a, "as_of", None)
+             else datetime.now(timezone.utc))
     sched = fetch_schedules()
-    n = record_results(sched)
-    print(json.dumps({"appended": n, **summarize()}, indent=1))
+    n = record_results(sched, now=as_of)
+    print(json.dumps({"appended": n, "as_of": as_of.isoformat(), **summarize()}, indent=1))
+
+
+def cmd_settle_verify(a):
+    """Read-back check for the settlement heartbeat: every expected settlement key of every verified-final
+    prediction (as of --as-of) must be in its ledger in --pred-dir (the remote records, freshly fetched).
+    Exit 1 lists what is missing. Read-only; uses the schedules cached by the settle step."""
+    from datetime import datetime
+    from src.nfl.data.ingest import load_cached_schedules
+    from src.nfl.reporting.ledger import settlement_gaps
+    as_of = datetime.fromisoformat(a.as_of.replace("Z", "+00:00"))
+    pred = Path(a.pred_dir)
+    gaps = settlement_gaps(load_cached_schedules(), pred, pred / "totals_ledger_v2.csv",
+                           pred / "totals_ledger_legacy_pre_spec.csv", as_of)
+    print(json.dumps({"as_of": as_of.isoformat(), "missing": gaps}, indent=1))
+    if gaps:
+        sys.exit(1)
+
+
+def cmd_monitor(a):
+    """Collection monitor: free, read-only checks of the records branch plus recent workflow runs."""
+    from datetime import datetime, timezone
+    from src.nfl.ops.monitor import run_checks, sync_issues
+    from src.nfl.data.ingest import load_cached_schedules, fetch_schedules
+    try:
+        sched = fetch_schedules()
+    except Exception as e:  # noqa: BLE001
+        logging.warning("schedule refresh failed (%s); using cache", type(e).__name__)
+        sched = load_cached_schedules()
+    runs = json.loads(Path(a.runs_json).read_text()) if a.runs_json and Path(a.runs_json).exists() else []
+    head = None
+    if a.records_head_time:
+        head = datetime.fromisoformat(a.records_head_time.replace("Z", "+00:00"))
+    findings = run_checks(datetime.now(timezone.utc), Path(a.records), sched, runs, head)
+    for f in findings:
+        print(f"::warning title=collection-alert::{f['title']}")
+    created = sync_issues(findings) if a.open_issues else []
+    result = {"findings": [f["key"] for f in findings], "issues_created": created}
+    print(json.dumps(result, indent=1))
+    if a.out:
+        Path(a.out).write_text(json.dumps(result))
+    return 0
 
 
 def cmd_ledger(a):
@@ -241,13 +340,28 @@ def main():
     from src.nfl.market.phase4_config import ALL_KINDS
     kinds = [k for k in ALL_KINDS if k != "legacy_current"]
     s = sub.add_parser("odds"); s.add_argument("--kind", required=True, choices=kinds)
-    s.add_argument("--trigger", default="manual", choices=["schedule", "pregame_planner", "manual", "validation"])
+    s.add_argument("--trigger", default="manual",
+                   choices=["github_cron", "external_dispatch", "manual", "pregame_planner", "validation", "schedule"])
+    s.add_argument("--scheduled-target", help="ISO UTC schedule target this capture serves (from schedule-gate)")
+    s.add_argument("--github-output", help="append skipped=true when the pre-pay re-check found nothing to buy")
+    s.add_argument("--claim-id", help="id of this job's paid-pull claim (written into the raw envelope)")
     s.add_argument("--targets"); s.add_argument("--no-weather", action="store_true"); s.set_defaults(fn=cmd_odds)
     s = sub.add_parser("schedule-gate"); s.add_argument("--raw-dir", required=True); s.add_argument("--github-output")
     s.add_argument("--force-kind", choices=kinds); s.set_defaults(fn=cmd_schedule_gate)
+    s = sub.add_parser("claim"); s.add_argument("--repo", required=True); s.add_argument("--odds-dir", default="data/odds")
+    s.add_argument("--mode", required=True, choices=["scheduled", "pregame"]); s.add_argument("--kind"); s.add_argument("--target")
+    s.add_argument("--targets"); s.add_argument("--run-id", default="local"); s.add_argument("--trigger", default="manual")
+    s.add_argument("--github-output"); s.set_defaults(fn=cmd_claim)
     s = sub.add_parser("phase4-build"); s.add_argument("--out", default="data/derived/phase4"); s.set_defaults(fn=cmd_phase4_build)
     s = sub.add_parser("predict"); s.add_argument("--season", type=int); s.add_argument("--week", type=int); s.set_defaults(fn=cmd_predict)
     s = sub.add_parser("record-results"); s.set_defaults(fn=cmd_record_results)
+    s = sub.add_parser("settle"); s.add_argument("--as-of", help="ISO UTC time used for the verified-final rule")
+    s.set_defaults(fn=cmd_record_results)
+    s = sub.add_parser("settle-verify"); s.add_argument("--pred-dir", required=True); s.add_argument("--as-of", required=True)
+    s.set_defaults(fn=cmd_settle_verify)
+    s = sub.add_parser("monitor"); s.add_argument("--records", required=True); s.add_argument("--runs-json")
+    s.add_argument("--records-head-time"); s.add_argument("--open-issues", action="store_true"); s.add_argument("--out")
+    s.set_defaults(fn=cmd_monitor)
     s = sub.add_parser("ledger"); s.set_defaults(fn=cmd_ledger)
     s = sub.add_parser("data-style"); s.add_argument("--first-season", type=int, default=1999); s.add_argument("--last-season", type=int, default=2022)
     s.add_argument("--force", action="store_true"); s.set_defaults(fn=cmd_data_style)

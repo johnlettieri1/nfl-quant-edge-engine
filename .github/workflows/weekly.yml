@@ -1,8 +1,21 @@
-# Weekly totals pipeline (Phase 4). GitHub cron is UTC-only, so every scheduled snapshot has TWO
-# cron lines (one for EDT, one for EST). `run.py schedule-gate` checks America/New_York local time
-# (zoneinfo, DST-automatic) and keeps only the run at/after the ET target; the other exits before
-# any credit is spent. Targets (ET):
-#   tue_scheduled        Tue 10:10 AM  odds + weather + settle last week's results (ledger v2)
+# Weekly totals pipeline (Phase 4, scheduling recovery Oct 2026).
+#
+# TRIGGERS (hybrid): the PRIMARY trigger is an external scheduler (cron-job.org, America/New_York
+# time zone) calling workflow_dispatch with inputs {kind: auto, source: external}. The GitHub cron
+# lines below are the BACKUP (GitHub may start them hours late or drop them). Every run, whatever
+# started it, goes through `run.py schedule-gate` (America/New_York, zoneinfo, DST-automatic):
+#   - each scheduled kind's window runs from its ET target T until min(T + 18 h, the next scheduled
+#     target of any kind); a run inside the window captures unless (kind, T) is already captured;
+#   - a run after the window closes captures nothing (obsolete), so a very late cron never buys a
+#     stale snapshot; duplicates (external + both cron twins + manual) capture at most once;
+#   - the capture keeps its REAL timestamp; T, the delay in minutes and the trigger are recorded
+#     beside it (envelope + every quote row), so a delayed capture never looks on time.
+# Right before paying, the job pushes a claim file to `records` without rebasing (compare-and-swap, see
+# src/nfl/ops/claims.py); only a job whose claim landed pays. take_snapshot re-checks (kind, T) again.
+# Heartbeat success only for a capture verified on remote `records` or one the records already hold.
+# Settlement moved to .github/workflows/settle.yml (no Odds API key, no credits).
+# Targets (ET):
+#   tue_scheduled        Tue 10:10 AM  odds + weather
 #   thu_scheduled        Thu  9:10 AM  odds + weather + totals prediction snapshot
 #   sat_scheduled        Sat  9:10 AM  odds + weather + totals prediction snapshot
 #   sun_scheduled        Sun  9:10 AM  odds + weather + totals prediction snapshot
@@ -20,7 +33,8 @@
 #      planner pushed in between; both workflows only ADD files there, except this job's predictions index
 #      and ledger, which the planner never touches).
 #
-# Requires repository secret ODDS_API_KEY. Open-Meteo needs no key.
+# Requires repository secret ODDS_API_KEY. Open-Meteo needs no key. Optional secret HC_PING_KEY
+# (healthchecks.io project ping key) sends heartbeats; when it is empty the heartbeat steps do nothing.
 name: Weekly totals
 
 on:
@@ -38,6 +52,11 @@ on:
         default: "auto"
         type: choice
         options: [auto, manual, tue_scheduled, thu_scheduled, sat_scheduled, sun_scheduled, sun_night_scheduled]
+      source:
+        description: "who started this run (the external scheduler sends: external)"
+        default: "manual"
+        type: choice
+        options: [manual, external]
 
 permissions:
   contents: write
@@ -77,6 +96,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Trigger source
+        id: src
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then echo "trigger=github_cron" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.inputs.source }}" = "external" ] && [ "${{ github.event.inputs.kind }}" = "auto" ]; then echo "trigger=external_dispatch" >> "$GITHUB_OUTPUT"
+          else echo "trigger=manual" >> "$GITHUB_OUTPUT"; fi
+
       - name: ET schedule gate (no credits spent)
         id: gate
         working-directory: code
@@ -102,27 +128,44 @@ jobs:
           cp -a records/data/predictions/. code/data/predictions/ 2>/dev/null || true
           cp -a records/data/weather/. code/data/weather/ 2>/dev/null || true
 
-      - name: Refresh data (incremental cache)
+      - name: Schedules (game_id matching; full data refresh runs after the odds pull)
         if: steps.gate.outputs.kind != 'none'
         working-directory: code
-        run: python run.py data --first-season 1999
+        run: python run.py data --schedules-only
+
+      # Safeguard 3: record this job's intent on `records` (push WITHOUT rebase) right before paying. Of two
+      # jobs that decided from the same records state only one claim lands; the other re-decides from a fresh
+      # fetch and does not pay. No claim recorded = no payment (fail closed). Manual snapshots skip this.
+      - name: Claim the paid pull (compare-and-swap on records)
+        id: claim
+        if: steps.gate.outputs.kind != 'none' && steps.gate.outputs.kind != 'manual'
+        working-directory: code
+        env:
+          SCHED_TARGET: ${{ steps.gate.outputs.target }}
+        run: >-
+          python run.py claim --repo ../records --odds-dir data/odds --mode scheduled
+          --kind "${{ steps.gate.outputs.kind }}" --target "$SCHED_TARGET" --trigger "${{ steps.src.outputs.trigger }}"
+          --run-id "${{ github.run_id }}-${{ github.run_attempt }}" --github-output "$GITHUB_OUTPUT"
 
       - name: Odds snapshot + forecast weather
-        if: steps.gate.outputs.kind != 'none'
+        id: odds
+        if: steps.gate.outputs.kind == 'manual' || steps.claim.outputs.pay == 'true'
         working-directory: code
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python run.py odds --kind ${{ steps.gate.outputs.kind }} --trigger ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'schedule' }}
+          SCHED_TARGET: ${{ steps.gate.outputs.target }}
+          CLAIM_ID: ${{ steps.claim.outputs.claim_id }}
+        run: python run.py odds --kind "${{ steps.gate.outputs.kind }}" --trigger "${{ steps.src.outputs.trigger }}" --scheduled-target "$SCHED_TARGET" --claim-id "$CLAIM_ID" --github-output "$GITHUB_OUTPUT"
 
-      # Settlement and predictions spend no credits, so they still run if the odds step was refused
-      # (HALT file, reserve, weekly cap); the job is still marked failed so the refusal is visible.
-      - name: Record results (Tuesday)
-        if: always() && steps.gate.outputs.kind == 'tue_scheduled'
+      # Predictions spend no credits, so they still run if the odds step was refused (HALT file,
+      # reserve, weekly cap); the job is still marked failed so the refusal is visible.
+      - name: Refresh data (incremental cache, for the prediction snapshot)
+        if: always() && contains(fromJSON('["thu_scheduled","sat_scheduled","sun_scheduled"]'), steps.gate.outputs.kind) && steps.claim.outputs.pay == 'true' && steps.odds.outputs.skipped != 'true'
         working-directory: code
-        run: python run.py record-results
+        run: python run.py data --first-season 1999
 
       - name: Totals prediction snapshot (Thu/Sat/Sun morning)
-        if: always() && contains(fromJSON('["thu_scheduled","sat_scheduled","sun_scheduled"]'), steps.gate.outputs.kind)
+        if: always() && contains(fromJSON('["thu_scheduled","sat_scheduled","sun_scheduled"]'), steps.gate.outputs.kind) && steps.claim.outputs.pay == 'true' && steps.odds.outputs.skipped != 'true'
         working-directory: code
         run: python run.py predict
 
@@ -149,6 +192,7 @@ jobs:
           git -C records diff --cached --stat
 
       - name: Commit and push to records
+        id: commit
         if: always() && steps.gate.outputs.kind != 'none' && steps.guard.outcome == 'success'
         working-directory: records
         run: |
@@ -160,3 +204,53 @@ jobs:
             git -c user.name="weekly-bot" -c user.email="weekly-bot@users.noreply.github.com" pull --rebase --quiet origin records
           done
           echo "::error title=records::push failed after 3 attempts"; exit 1
+
+      # Safeguard 2: a paid capture counts only once its raw file is read back from the REMOTE records branch.
+      - name: Verify capture on remote records
+        id: verify
+        if: always() && steps.odds.outputs.raw_file != ''
+        env:
+          RAW_FILE: ${{ steps.odds.outputs.raw_file }}
+        run: |
+          if git -C records fetch --quiet origin records && git -C records cat-file -e "FETCH_HEAD:data/odds/raw/$RAW_FILE"; then
+            echo "verified=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "verified=false" >> "$GITHUB_OUTPUT"
+            echo "::error title=records::paid capture $RAW_FILE is NOT on the remote records branch"; exit 1
+          fi
+
+      - name: Keep an unverified paid capture as a run artifact (recovery copy)
+        if: always() && steps.odds.outputs.raw_file != '' && steps.verify.outputs.verified != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unverified-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            code/data/odds/raw/${{ steps.odds.outputs.raw_file }}
+            code/data/odds/quotes/
+          retention-days: 30
+
+      # Heartbeat (healthchecks.io), Safeguard 2: success ONLY for a verified new capture or a capture the
+      # records already hold; skips send nothing; failures and unverified paid captures send /fail. The
+      # decision is src/nfl/ops/heartbeat.py (unit-tested). Ping failures never fail the job; the ping key
+      # travels only as a masked secret in the request path (never a query string).
+      - name: Heartbeat
+        if: always()
+        working-directory: code
+        env:
+          HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+          PYTHONPATH: .
+          HB_SLUG: ${{ steps.gate.outputs.heartbeat }}
+          GATE_KIND: ${{ steps.gate.outputs.kind }}
+          CLAIM_STATE: ${{ steps.claim.outputs.state }}
+          CLAIM_OUTCOME: ${{ steps.claim.outcome }}
+          ODDS_OUTCOME: ${{ steps.odds.outcome }}
+          SKIP_REASON: ${{ steps.odds.outputs.skip_reason }}
+          RAW_FILE: ${{ steps.odds.outputs.raw_file }}
+          VERIFIED: ${{ steps.verify.outputs.verified }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          read -r state action < <(python -m src.nfl.ops.heartbeat snapshot || echo "failed fail")
+          echo "heartbeat: slug=${HB_SLUG:-none} state=$state action=$action"
+          [ -z "$HC_PING_KEY" ] || [ -z "$HB_SLUG" ] || [ "$action" = "none" ] && exit 0
+          suffix=""; [ "$action" = "success" ] || suffix="/fail"
+          curl -fsS -m 10 --retry 3 -o /dev/null --data-raw "state=$state run=${{ github.run_id }}" "https://hc-ping.com/$HC_PING_KEY/$HB_SLUG$suffix" || true
