@@ -15,7 +15,8 @@ the script changes into the repo root so relative data/ paths resolve.
   python run.py odds --kind KIND [--trigger T] [--targets JSON] [--no-weather]
       Phase 4: one per-book totals snapshot (1 credit, frozen 10-book list) plus the forecast-weather
       capture linked to it. KIND: tue_scheduled, thu_scheduled, sat_scheduled, sun_scheduled,
-      sun_night_scheduled, pregame_window, manual. Budget preflight refuses below the credit reserve.
+      sun_night_scheduled, pregame_window, manual. Budget preflight refuses unless the credit reserve
+      remains intact after the pull.
   python run.py schedule-gate --raw-dir DIR [--github-output FILE] [--force-kind KIND]
       Phase 4: decide which scheduled snapshot kind (if any) this cron run should take (ET, DST-safe).
   python run.py phase4-build [--out data/derived/phase4]
@@ -108,7 +109,7 @@ def cmd_odds(a):
     targets = json.loads(a.targets) if a.targets else None
     try:
         summary = take_snapshot(kind=a.kind, trigger=a.trigger, schedules=sched, targets=targets,
-                                scheduled_target=a.scheduled_target or None)
+                                scheduled_target=a.scheduled_target or None, claim_id=a.claim_id or None)
     except SnapshotNotNeeded as e:
         print(json.dumps({"skipped": True, "reason": str(e), "credits_spent": 0}))
         if a.github_output:
@@ -182,6 +183,7 @@ def cmd_claim(a):
     if a.github_output:
         with open(a.github_output, "a") as f:
             f.write(f"pay={'true' if d.pay else 'false'}\nstate={d.state}\nclaim={d.claim_file or ''}\n")
+            f.write(f"claim_id={CL.claim_id_of(d.claim_file) if d.claim_file else ''}\n")
             f.write(f"targets={json.dumps(d.targets)}\n")
     if d.state == "claim_failed":
         sys.exit(1)
@@ -342,6 +344,7 @@ def main():
                    choices=["github_cron", "external_dispatch", "manual", "pregame_planner", "validation", "schedule"])
     s.add_argument("--scheduled-target", help="ISO UTC schedule target this capture serves (from schedule-gate)")
     s.add_argument("--github-output", help="append skipped=true when the pre-pay re-check found nothing to buy")
+    s.add_argument("--claim-id", help="id of this job's paid-pull claim (written into the raw envelope)")
     s.add_argument("--targets"); s.add_argument("--no-weather", action="store_true"); s.set_defaults(fn=cmd_odds)
     s = sub.add_parser("schedule-gate"); s.add_argument("--raw-dir", required=True); s.add_argument("--github-output")
     s.add_argument("--force-kind", choices=kinds); s.set_defaults(fn=cmd_schedule_gate)

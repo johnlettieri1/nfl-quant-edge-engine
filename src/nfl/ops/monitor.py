@@ -111,19 +111,20 @@ def unsettled(now: datetime, schedules: pd.DataFrame, pred_dir: Path, ledgers: l
 
 
 def unresolved_claims(now: datetime, odds_dir: Path, start: datetime | None = None) -> list[dict]:
-    """A paid-pull claim (Safeguard 3) older than its TTL with no capture of its kind inside [claim, claim + TTL].
-    Either the final re-check skipped the pull (no credit) or a PAID capture never reached records."""
-    from src.nfl.ops.claims import _raw, load_claims, resolved
+    """A paid-pull claim (Safeguard 3) older than its TTL + 10 min whose OWN capture (a raw envelope carrying
+    this claim's claim_id) is not in records. Captures of other claims never count. Either the final re-check
+    skipped the pull (no credit) or a PAID capture never reached records."""
+    from src.nfl.ops.claims import capture_claim_ids, load_claims, resolved
     now, begin = parse_utc(now), _start(parse_utc(now), start)
-    raw = _raw(odds_dir)
+    captured = capture_claim_ids(odds_dir, begin)
     out = []
     for c in load_claims(odds_dir):
-        if c["_ts"] < begin or now - c["_ts"] < timedelta(minutes=C.CLAIM_TTL_MIN + 10) or resolved(c, raw):
+        if c["_ts"] < begin or now - c["_ts"] < timedelta(minutes=C.CLAIM_TTL_MIN + 10) or resolved(c, captured):
             continue
         run = str(c.get("run_id", "")).split("-")[0]
         out.append(_finding(f"claim-unresolved-{c['_file']}", f"Paid pull claimed but no capture in records: {c['_file']}",
-                            f"Run {run} claimed a `{c['kind']}` pull at {to_et(c['_ts']).isoformat()} and no capture of that kind "
-                            "followed. Either the final re-check skipped it (no credit spent) or a paid capture was not "
+                            f"Run {run} claimed a `{c['kind']}` pull at {to_et(c['_ts']).isoformat()} and no capture carrying "
+                            "this claim id is in records. Either the final re-check skipped it (no credit spent) or a paid capture was not "
                             "committed: check that run and its `unverified-capture` artifact."))
     return out
 

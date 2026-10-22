@@ -85,7 +85,7 @@ scheduler can only start the free gate; the gate decides, so no paid request hap
 | missed-snapshot | a scheduled kind has no capture by the time its late window closed |
 | missed-pregame | a kickoff slot's games have no paired quote in the 30 minutes before kickoff |
 | unsettled | 36 h after kickoff, an expected settlement key (prediction snapshot file, game, variant) of a verified final is missing from its assigned ledger (legacy snapshots: `legacy_pre_spec` in the legacy ledger; Phase 4 snapshots: `consensus_all` + `best_available_ny`, `nflverse_line` or `none` in the v2 ledger). A game ID present in some ledger does not count as settled. |
-| claim-unresolved | a paid-pull claim has no capture of its kind 30 min later (either skipped by the final re-check, or a paid capture never reached records) |
+| claim-unresolved | 30 min after a paid-pull claim, no raw capture carrying THAT claim's id is in records (either skipped by the final re-check, or a paid capture never reached records). Captures of other claims never count. |
 | halt | a HALT file exists |
 | workflow-failure | a Weekly, Pregame, Settlement or Monitor run failed in the last 26 h (covers a paid pull whose records commit failed) |
 | records-stale | in season, no records commit for 50 h |
@@ -132,11 +132,20 @@ so of two jobs that decided from the same records state only one claim lands. Th
 and does not pay. Claims are new files only (records guard checked before every claim push); they never
 change quotes, CLV or any research table.
 
+Claim-to-capture association: the claim id is the claim file name without `.json`. The paying job passes it to
+`take_snapshot`, which checks it matches the snapshot kind (before paying) and writes it into the raw envelope
+as `claim_id`. A claim is resolved ONLY by a capture whose envelope carries its id and kind; an unrelated
+capture of the same kind (for example another job's pregame pull for a different game) never resolves it. Its
+own capture resolves it even if some targeted games or books returned no valid quote; per-game coverage from
+the paired quotes then decides whether an unquoted game may be retried. Unresolved claims block for 20 minutes
+and then expire. The monitor uses the same association. Captures from before this change carry no claim id and
+resolve nothing; no existing record was rewritten.
+
 **Not guaranteed: exactly-once paid collection.** Residual duplicate-credit cases: a paying job whose capture
 never reaches records (then a job after the 20-min TTL may pay again); a job slower than 20 min between claim
 and commit (normal is 1 to 3 min); a late scheduled snapshot and a pregame pull serving the same game window;
 manual runs (a manual `kind` snapshot is never deduplicated). Each costs at most 1 extra credit and stays inside
-the 30-per-week cap and 60-credit reserve.
+the 30-per-week cap and the 60-credit reserve.
 
 ## 6. Credential design and GitHub App assessment
 
@@ -149,7 +158,7 @@ This token is **not dispatch-only**. Actions write on this repository also allow
 with any inputs (including a `manual` paid pull) on any existing branch or tag, re-running and cancelling runs,
 deleting run logs, artifacts and caches, and enabling or disabling workflows. It cannot read secret values,
 push code, change repository settings or touch other repositories. Paid misuse is bounded by the weekly cap
-(30), the reserve (60) and HALT.
+(30), the reserve (60 credits must remain after a pull) and HALT.
 
 GitHub App (assessed, not recommended yet):
 
@@ -175,7 +184,11 @@ reject paid `manual` kinds from the automation actor.
 | Settlement, monitor, gates, /events | 0 | 0 |
 | **Total** | **about 11** | **about 13 to 18** |
 
-Hard limits stay: 30 per NFL week, refuse below 60 remaining, HALT on any pull that costs more than 1.
+Hard limits stay: 30 per NFL week; pay only if at least 60 credits remain AFTER the expected 1-credit pull
+(61 or more before it; 60 or fewer is refused; an unknown balance is refused); HALT on any pull that costs
+more than 1. A balance check made before the request cannot stop a provider that charges more than the
+expected 1 credit: such a charge can take the balance below 60, and is caught afterwards from the response
+headers (data kept, HALT file written, every later paid pull refused until John approves).
 
 ## 8. Known reliability limitations
 

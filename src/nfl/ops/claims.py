@@ -39,6 +39,7 @@ from src.nfl.market.timing import (coverage_from_quote_csvs, late_window, minute
 
 CLAIM_SUBDIR = Path("data/odds/claims")
 CLAIM_RE = re.compile(r"^claim_(\d{8}T\d{6}Z)_([a-z_]+)_r([A-Za-z0-9-]+)\.json$")
+CLAIM_ID_RE = re.compile(r"^claim_\d{8}T\d{6}Z_([a-z_]+)_r[A-Za-z0-9-]+$")
 SCHEMA = "paid_pull_claim_v1"
 GIT_ID = ["-c", "user.name=claim-bot", "-c", "user.email=claim-bot@users.noreply.github.com"]
 
@@ -75,24 +76,57 @@ def load_claims(odds_dir: Path) -> list[dict]:
     return out
 
 
+def claim_id_of(claim_file: str) -> str:
+    """The claim identifier is the claim file name without `.json`. The paying job passes it to
+    take_snapshot, which writes it into the raw capture envelope (`claim_id`)."""
+    return claim_file[:-5] if claim_file.endswith(".json") else claim_file
+
+
 def _raw(odds_dir: Path) -> list[tuple[datetime, str]]:
     d = Path(odds_dir) / "raw"
     names = sorted(p.name for p in d.iterdir()) if d.exists() else []
     return [p for p in (parse_raw_name(n) for n in names) if p]
 
 
-def resolved(claim: dict, raw: list[tuple[datetime, str]]) -> bool:
-    """A claim is resolved once a capture of its kind exists inside [claim_ts, claim_ts + TTL]."""
-    end = claim["_ts"] + timedelta(minutes=C.CLAIM_TTL_MIN)
-    return any(k == claim["kind"] and claim["_ts"] <= ts <= end for ts, k in raw)
+def capture_claim_ids(odds_dir: Path, since: datetime) -> dict[str, tuple[str, str]]:
+    """{claim_id: (raw file, capture kind)} for raw captures taken at or after `since` whose envelope carries
+    a claim_id. Only those recent envelopes are opened. Captures without a claim_id (pre-claim records,
+    manual snapshots) resolve nothing."""
+    d = Path(odds_dir) / "raw"
+    out: dict[str, tuple[str, str]] = {}
+    for p in sorted(d.glob("totals_*.json")) if d.exists() else []:
+        parsed = parse_raw_name(p.name)
+        if not parsed or parsed[0] < parse_utc(since):
+            continue
+        try:
+            env = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        cid = env.get("claim_id") if isinstance(env, dict) else None
+        if cid:
+            out.setdefault(str(cid), (p.name, str(env.get("snapshot_kind") or parsed[1])))
+    return out
 
 
-def active_claims(claims: list[dict], raw: list[tuple[datetime, str]], now: datetime) -> list[dict]:
+def resolved(claim: dict, captured: dict[str, tuple[str, str]]) -> bool:
+    """A claim is resolved ONLY by its own capture: a raw envelope whose claim_id equals this claim's id and
+    whose kind matches. An unrelated capture of the same kind never resolves it. The own capture resolves
+    the claim even if some targeted games or books returned no valid quote (per-game coverage then decides
+    from the paired quotes, as before)."""
+    hit = captured.get(claim_id_of(claim["_file"]))
+    return hit is not None and hit[1] == claim["kind"]
+
+
+def active_claims(claims: list[dict], captured: dict[str, tuple[str, str]], now: datetime) -> list[dict]:
     """Unresolved claims made within the last CLAIM_TTL_MIN minutes. A job never sees its own claim here:
     it decides before writing it, and a rejected claim commit is discarded by the next fetch/reset."""
     now = parse_utc(now)
     return [c for c in claims
-            if timedelta(0) <= now - c["_ts"] < timedelta(minutes=C.CLAIM_TTL_MIN) and not resolved(c, raw)]
+            if timedelta(0) <= now - c["_ts"] < timedelta(minutes=C.CLAIM_TTL_MIN) and not resolved(c, captured)]
+
+
+def _recent_captures(odds_dir: Path, now: datetime) -> dict[str, tuple[str, str]]:
+    return capture_claim_ids(odds_dir, parse_utc(now) - timedelta(minutes=C.CLAIM_TTL_MIN + 1))
 
 
 # ---- decisions (pure; read the records checkout) ---------------------------------------------------
@@ -105,7 +139,7 @@ def decide_scheduled(now: datetime, kind: str, target: datetime, odds_dir: Path,
         return ClaimDecision(False, "already_captured", f"{kind} already captured for target {target.isoformat()}")
     if now >= end and trigger != "manual":
         return ClaimDecision(False, "obsolete", f"{kind} window for {target.isoformat()} closed at {end.isoformat()}")
-    for c in active_claims(load_claims(odds_dir), raw, now):
+    for c in active_claims(load_claims(odds_dir), _recent_captures(odds_dir, now), now):
         if c["kind"] == kind and parse_utc(c["scheduled_target"]) == target:
             return ClaimDecision(False, "claimed_elsewhere", f"run {c.get('run_id')} claimed {kind} at {c['claim_ts']}")
     return ClaimDecision(True, "pay", f"{kind} target {target.isoformat()} unclaimed and uncaptured")
@@ -114,12 +148,11 @@ def decide_scheduled(now: datetime, kind: str, target: datetime, odds_dir: Path,
 def decide_pregame(now: datetime, targets: list[dict], odds_dir: Path) -> ClaimDecision:
     now = parse_utc(now)
     names = sorted(p.name for p in (Path(odds_dir) / "raw").iterdir()) if (Path(odds_dir) / "raw").exists() else []
-    raw = [p for p in (parse_raw_name(n) for n in names) if p]
     events = [(t["event_id"], parse_utc(t["kickoff"])) for t in targets or []]
     d = plan_pregame(now, events, names, coverage=coverage_from_quote_csvs(quote_files(odds_dir)))
     if not d.pull:
         return ClaimDecision(False, "not_needed", d.reason)
-    act = active_claims(load_claims(odds_dir), raw, now)
+    act = active_claims(load_claims(odds_dir), _recent_captures(odds_dir, now), now)
     keep = []
     for t in d.targets:
         k = parse_utc(t["kickoff"])
@@ -158,7 +191,8 @@ def claim_with_cas(repo: Path, decide: Callable[[Path], ClaimDecision], claim_bo
         name = claim_filename(now, kind, f"{run_id}-{attempt}")
         path = repo / CLAIM_SUBDIR / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        body = {"schema_version": SCHEMA, "claim_ts": parse_utc(now).isoformat(), "kind": kind, "run_id": f"{run_id}-{attempt}",
+        body = {"schema_version": SCHEMA, "claim_id": claim_id_of(name), "claim_ts": parse_utc(now).isoformat(),
+                "kind": kind, "run_id": f"{run_id}-{attempt}",
                 "ttl_minutes": C.CLAIM_TTL_MIN, **claim_body(d),
                 "note": "intent to make ONE paid odds pull; not a quote and not a capture"}
         with open(path, "x", encoding="utf-8") as f:

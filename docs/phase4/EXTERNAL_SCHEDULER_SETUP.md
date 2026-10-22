@@ -41,8 +41,8 @@ What this token can and cannot do (please read):
   repository also lets the holder start any workflow with any inputs (including a paid manual snapshot), re-run
   or cancel runs, delete run logs, artifacts and caches, and turn workflows on or off.
 - It cannot read secret values, change code, change repository settings or reach any other repository.
-- If it ever leaked, paid misuse is limited by the safety guards: at most 30 pulls per NFL week, no pull below
-  60 remaining credits, and HALT on any pull that costs more than 1 credit. Revoke it right away (Part 7).
+- If it ever leaked, paid misuse is limited by the safety guards: at most 30 pulls per NFL week, no pull unless
+  at least 60 credits would remain afterwards, and HALT on any pull that costs more than 1 credit. Revoke it right away (Part 7).
 - After the PR is merged, delete old feature branches you no longer need. A workflow can be started on any
   existing branch, so fewer branches means less old code that could be started.
 

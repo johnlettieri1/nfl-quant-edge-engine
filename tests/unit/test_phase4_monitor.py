@@ -186,5 +186,8 @@ def test_unresolved_claim_flags_a_possibly_uncommitted_paid_capture(tmp_path):
     out = M.unresolved_claims(t + timedelta(hours=1), odds, START)
     assert [f["key"] for f in out] == [f"claim-unresolved-{name}"] and "Run 555" in out[0]["body"]
     assert M.unresolved_claims(t + timedelta(hours=5), odds, START)[0]["title"] == out[0]["title"]   # stable
-    (odds / "raw" / raw(t + timedelta(seconds=20), "thu_scheduled")).write_text("{}")
-    assert M.unresolved_claims(t + timedelta(hours=1), odds, START) == []               # capture landed
+    (odds / "raw" / raw(t + timedelta(seconds=20), "thu_scheduled")).write_text("{}")   # capture WITHOUT this claim id
+    assert len(M.unresolved_claims(t + timedelta(hours=1), odds, START)) == 1           # does not resolve it
+    (odds / "raw" / raw(t + timedelta(seconds=40), "thu_scheduled")).write_text(
+        json.dumps({"snapshot_kind": "thu_scheduled", "claim_id": name[:-5]}))
+    assert M.unresolved_claims(t + timedelta(hours=1), odds, START) == []               # its own capture landed

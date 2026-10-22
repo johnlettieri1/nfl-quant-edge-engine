@@ -284,13 +284,20 @@ def _csv_bytes(rows: list[dict], fields: list[str]) -> bytes:
 def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | None = None,
                   odds_dir: Path = ODDS_DIR, targets: list[dict] | None = None,
                   now: datetime | None = None, preflight: bool = True,
-                  scheduled_target: str | None = None) -> dict:
+                  scheduled_target: str | None = None, claim_id: str | None = None) -> dict:
     """Budget preflight (free) -> one paid pull -> raw v2 envelope -> paired quotes rows.
 
     scheduled_target: the ET schedule target this capture serves (scheduled kinds). The capture's own
     timestamp is the real fetch time; the target and the delay are recorded beside it, never instead of it."""
     if trigger not in C.TRIGGERS:
         raise ValueError(f"invalid trigger {trigger}")
+    if claim_id:
+        # the paid-pull claim this capture fulfils (src/nfl/ops/claims.py); written into the raw envelope so
+        # the claim is resolved by THIS capture only, never by an unrelated capture of the same kind
+        from src.nfl.ops.claims import CLAIM_ID_RE
+        m = CLAIM_ID_RE.match(str(claim_id))
+        if not m or m.group(1) != kind:
+            raise ValueError(f"claim id {claim_id!r} does not match a {kind} claim")
     if kind not in C.ALL_KINDS or kind == "legacy_current":
         raise ValueError(f"invalid snapshot kind {kind}")
     names = raw_names(odds_dir)
@@ -331,8 +338,14 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
         balance = fetch_balance()
         if balance["remaining"] is None:
             raise BudgetError("credit balance header missing; refusing to pull (fail closed)")
-        if balance["remaining"] < C.CREDIT_RESERVE:
-            raise BudgetError(f"credit reserve: {balance['remaining']} remaining < reserve {C.CREDIT_RESERVE}")
+        # The reserve must still be intact AFTER a normal pull: pay only if remaining - expected >= reserve
+        # (with reserve 60 and 1 credit per pull: 61 or more remaining). A provider charge above the expected
+        # 1 credit cannot be prevented by a balance check made before the request; it is detected from the
+        # response headers afterwards (HALT file, all further pulls refused).
+        after = balance["remaining"] - C.EXPECTED_CREDITS_PER_PULL
+        if after < C.CREDIT_RESERVE:
+            raise BudgetError(f"credit reserve: {balance['remaining']} remaining would leave {after} after this pull "
+                              f"(reserve {C.CREDIT_RESERVE} must remain)")
     res = fetch_totals_raw(request_bookmakers())
     body: bytes = res.pop("body")
     sha = hashlib.sha256(body).hexdigest()
@@ -346,7 +359,7 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
               "schedule_delay_minutes": delay,
               "delayed": None if delay is None else bool(delay > C.DELAYED_THRESHOLD_MIN)}
     envelope = {"schema_version": RAW_SCHEMA, "snapshot_id": f"{ts}_{kind}", "snapshot_kind": kind, "trigger": trigger,
-                "capture_ts_utc": fetched.isoformat(), **{k: timing[k] for k in TIMING_FIELDS if k != "trigger"},
+                "claim_id": claim_id or None, "capture_ts_utc": fetched.isoformat(), **{k: timing[k] for k in TIMING_FIELDS if k != "trigger"},
                 **res, "preflight_balance": balance, "spec_version": C.SPEC_VERSION,
                 "code_sha": os.environ.get("GITHUB_SHA"), "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
                 "targets": targets or [], "response_sha256": sha,
@@ -368,7 +381,8 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
     rows = parse_quotes(games, snapshot_id, fetched, kind, schedules, raw_path.name, sha, timing)
     if rows:
         write_exclusive(odds_dir / QUOTES_DIR / f"quotes_{snapshot_id}.csv", _csv_bytes(rows, QUOTE_FIELDS))
-    summary = {"snapshot_id": snapshot_id, "kind": kind, "raw_path": str(raw_path), "games": len(games), **timing,
+    summary = {"snapshot_id": snapshot_id, "kind": kind, "raw_path": str(raw_path), "claim_id": claim_id or None,
+               "games": len(games), **timing,
                "quote_rows": len(rows), "unmatched_games": len({r["event_id"] for r in rows if r["game_id"] is None}),
                "books_returned": sorted({r["book"] for r in rows}), "x_requests_last": last,
                "x_requests_remaining": res.get("x_requests_remaining")}

@@ -10,7 +10,7 @@
 #   - The `pull` job runs only when the gate finds an uncovered kickoff slot in the window. Right before
 #     paying it re-checks the plan against the latest records (a queued job never pays after kickoff or
 #     for a slot another pull already covered), then spends 1 credit (frozen 10-book list) after a free
-#     balance preflight (reserve 60, weekly cap 30, fail closed, any HALT file stops everything).
+#     balance preflight (60 credits must remain after the pull, weekly cap 30, fail closed, any HALT file stops everything).
 # Windows cover NFL kickoffs in both EDT and EST, plus dated windows for the 2026 off-day games
 # (Wed Nov 25, Thanksgiving Nov 26, Fri Nov 27, Saturdays in Dec/Jan, Christmas Fri Dec 25).
 # GitHub may delay scheduled runs; the planner labels what actually happened.
@@ -136,7 +136,8 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           TRIGGER: ${{ github.event_name == 'schedule' && 'github_cron' || (github.event.inputs.source == 'external' && 'external_dispatch' || 'manual') }}
           TARGETS: ${{ steps.claim.outputs.targets }}
-        run: python run.py odds --kind pregame_window --trigger "$TRIGGER" --targets "$TARGETS" --github-output "$GITHUB_OUTPUT"
+          CLAIM_ID: ${{ steps.claim.outputs.claim_id }}
+        run: python run.py odds --kind pregame_window --trigger "$TRIGGER" --targets "$TARGETS" --claim-id "$CLAIM_ID" --github-output "$GITHUB_OUTPUT"
       - name: Copy records
         if: always()
         run: |

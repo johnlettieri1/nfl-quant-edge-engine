@@ -14,7 +14,7 @@ HOLDOUT_SEASONS = (2023, 2024, 2025)
 # ---- Odds API -------------------------------------------------------------------------------
 ODDS_MARKET = "totals"
 EXPECTED_CREDITS_PER_PULL = 1      # 1 market x up to 10 named books
-CREDIT_RESERVE = 60                # refuse a paid pull when remaining credits are below this
+CREDIT_RESERVE = 60                # at least this many credits must remain AFTER a normal pull (pay only at 61+)
 WEEKLY_CREDIT_CAP = 30             # refuse a paid pull after this many pulls in the NFL week (Tue 00:00 ET start)
 
 # ---- Snapshot kinds -------------------------------------------------------------------------

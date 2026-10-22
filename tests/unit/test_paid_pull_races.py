@@ -47,11 +47,12 @@ def job(tmp_path, origin, name):
     return d
 
 
-def commit_capture(repo, dt, kind, event_ids=()):
-    """What a paying job does after the API call: write the raw file and paired quotes, commit, push
-    (rebasing on top of other records commits, like the workflow)."""
+def commit_capture(repo, dt, kind, event_ids=(), claim=None):
+    """What a paying job does after the API call: write the raw envelope (carrying its claim id, as
+    take_snapshot does) and paired quotes, commit, push (rebasing on other records commits, like the workflow)."""
     raw = repo / "data" / "odds" / "raw" / f"totals_{dt:%Y%m%dT%H%M%SZ}_{kind}.json"
-    raw.write_text("{}")
+    raw.write_text(json.dumps({"schema_version": "odds_raw_v2", "snapshot_kind": kind,
+                               "claim_id": CL.claim_id_of(claim.claim_file) if claim and claim.claim_file else None}))
     if event_ids:
         q = repo / "data" / "odds" / "quotes"; q.mkdir(parents=True, exist_ok=True)
         rows = "".join(f"{dt.isoformat()},{e},draftkings,44.5,-110,-110\n" for e in event_ids)

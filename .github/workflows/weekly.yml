@@ -154,7 +154,8 @@ jobs:
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           SCHED_TARGET: ${{ steps.gate.outputs.target }}
-        run: python run.py odds --kind "${{ steps.gate.outputs.kind }}" --trigger "${{ steps.src.outputs.trigger }}" --scheduled-target "$SCHED_TARGET" --github-output "$GITHUB_OUTPUT"
+          CLAIM_ID: ${{ steps.claim.outputs.claim_id }}
+        run: python run.py odds --kind "${{ steps.gate.outputs.kind }}" --trigger "${{ steps.src.outputs.trigger }}" --scheduled-target "$SCHED_TARGET" --claim-id "$CLAIM_ID" --github-output "$GITHUB_OUTPUT"
 
       # Predictions spend no credits, so they still run if the odds step was refused (HALT file,
       # reserve, weekly cap); the job is still marked failed so the refusal is visible.

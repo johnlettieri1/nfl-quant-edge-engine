@@ -83,7 +83,7 @@ Credit balance after all pre-collection work: **496 of 500** (1 pre-spec snapsho
   - at most 2 snapshots within 40 minutes before a kickoff (any snapshot counts as an attempt, quoted or not)
   - one late attempt down to T-5, only if nothing has tried yet
   - never at or after kickoff
-  - weekly cap 30, reserve 60, and any HALT file stops everything
+  - weekly cap 30, reserve 60 (amended Oct 2026: 60 must remain AFTER the pull, so pay only at 61+), and any HALT file stops everything
 - The pull job re-checks game by game against the latest records right before paying.
 
 ### S2. Immutable writes are crash-safe
