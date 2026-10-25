@@ -1,0 +1,14 @@
+{
+ "schema_version": "paid_pull_claim_v1",
+ "claim_id": "claim_20261025T235541Z_pregame_window_r40246879652-1-1",
+ "claim_ts": "2026-10-25T23:55:41.218886+00:00",
+ "kind": "pregame_window",
+ "run_id": "40246879652-1-1",
+ "ttl_minutes": 20,
+ "scheduled_target": null,
+ "event_ids": [
+  "176d474ed8b2bbf1eb4d7e9c56b4bf22"
+ ],
+ "trigger": "external_dispatch",
+ "note": "intent to make ONE paid odds pull; not a quote and not a capture"
+}
