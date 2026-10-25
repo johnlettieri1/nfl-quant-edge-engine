@@ -90,7 +90,7 @@ def build_injuries(games: pd.DataFrame, injuries: pd.DataFrame, snaps: pd.DataFr
     audit["hours_before_kickoff_median"] = float(hrs[~late].median())
     audit["share_modified_within_24h_of_kickoff"] = float(((hrs >= 0) & (hrs < 24)).mean())
     inj = inj[~late]
-    inj["w"] = inj.report_status.map(C.STATUS_WEIGHT).fillna(0.0)
+    inj["w"] = pd.to_numeric(inj.report_status.map(C.STATUS_WEIGHT), errors="coerce").astype("float64").fillna(0.0)  # pandas 3.1-safe
     inj["grp"] = inj.position.map(_pos_group)
     inj = inj[(inj.w > 0) & inj.grp.notna()]
     ids = players.dropna(subset=["pfr_id"]).drop_duplicates("gsis_id").set_index("gsis_id").pfr_id
