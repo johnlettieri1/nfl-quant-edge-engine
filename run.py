@@ -248,8 +248,15 @@ def cmd_monitor(a):
     findings = run_checks(datetime.now(timezone.utc), Path(a.records), sched, runs, head)
     for f in findings:
         print(f"::warning title=collection-alert::{f['title']}")
-    created = sync_issues(findings) if a.open_issues else []
-    result = {"findings": [f["key"] for f in findings], "issues_created": created}
+    created, sync_error = [], None
+    if a.open_issues and findings:
+        try:
+            created = sync_issues(findings)
+        except Exception as e:  # noqa: BLE001  (for example GitHub Issues switched off on the repository)
+            sync_error = f"{type(e).__name__}: {getattr(e, 'stderr', '') or e}".strip()[:300]
+            print(f"::error title=collection-alert issue sync::could not open alert issues ({sync_error}). "
+                  "Findings are still reported by the healthchecks.io nfl-monitor /fail ping and listed above.")
+    result = {"findings": [f["key"] for f in findings], "issues_created": created, "issue_sync_error": sync_error}
     print(json.dumps(result, indent=1))
     if a.out:
         Path(a.out).write_text(json.dumps(result))

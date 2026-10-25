@@ -89,10 +89,11 @@ def test_unsettled_final_games_alert_after_36h_and_clear_when_settled(tmp_path):
     s.loc[s.game_id == "2026_07_SEA_DEN", ["home_score", "away_score"]] = [20, 17]
     led, leg = pred / "totals_ledger_v2.csv", pred / "totals_ledger_legacy_pre_spec.csv"
     assert M.unsettled(u(2026, 10, 19, 17, 0), s, pred, [led, leg]) == []           # only 24 h after kickoff
-    out = M.unsettled(u(2026, 10, 20, 6, 0), s, pred, [led, leg])
+    assert M.unsettled(u(2026, 10, 20, 6, 0), s, pred, [led, leg]) == []            # before Tue settlement + retry
+    out = M.unsettled(u(2026, 10, 21, 17, 0), s, pred, [led, leg])
     assert [f["key"] for f in out] == ["unsettled-2026_07"] and "DET_MIN" not in out[0]["body"]   # no score: not final
     led.write_text("snapshot_file,game_id,variant\ntotals_2026_wk07_x.json,2026_07_SEA_DEN,none\n")
-    assert M.unsettled(u(2026, 10, 20, 6, 0), s, pred, [led, leg]) == []
+    assert M.unsettled(u(2026, 10, 21, 17, 0), s, pred, [led, leg]) == []
 
 
 def test_halt_alert():
@@ -191,3 +192,21 @@ def test_unresolved_claim_flags_a_possibly_uncommitted_paid_capture(tmp_path):
     (odds / "raw" / raw(t + timedelta(seconds=40), "thu_scheduled")).write_text(
         json.dumps({"snapshot_kind": "thu_scheduled", "claim_id": name[:-5]}))
     assert M.unresolved_claims(t + timedelta(hours=1), odds, START) == []               # its own capture landed
+
+
+# ---- Oct 25 2026 hotfix: settlement deadline follows the settlement schedule -----------------------
+
+def test_settlement_deadline_never_flags_thursday_or_sunday_games_over_the_weekend():
+    tnf = u(2026, 10, 23, 0, 15)                    # Thu Oct 22 8:15 PM EDT
+    assert M.settlement_deadline(tnf) == u(2026, 10, 28, 14, 30) + timedelta(hours=26) - timedelta(days=1)
+    sun = u(2026, 10, 25, 17, 0)                    # Sun Oct 25 1:00 PM EDT
+    assert M.settlement_deadline(sun) == u(2026, 10, 27, 14, 30) + timedelta(hours=26)
+    mnf = u(2026, 10, 27, 0, 15)                    # Mon Oct 26 8:15 PM EDT -> ready Tue 1:15 AM -> Tue 10:30 slot
+    assert M.settlement_deadline(mnf) == u(2026, 10, 27, 14, 30) + timedelta(hours=26)
+    after_dst = u(2026, 11, 2, 1, 20)               # Sun Nov 1 8:20 PM EST -> Tue Nov 3 10:30 EST = 15:30 UTC
+    assert M.settlement_deadline(after_dst) == u(2026, 11, 3, 15, 30) + timedelta(hours=26)
+
+
+def test_monitor_no_longer_reports_its_own_failed_runs():
+    runs = [{"workflowName": "Collection monitor", "conclusion": "failure", "createdAt": "2026-10-25T12:00:15Z", "databaseId": 9}]
+    assert M.workflow_failures(u(2026, 10, 25, 16, 0), runs) == []

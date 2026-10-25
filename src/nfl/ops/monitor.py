@@ -28,7 +28,9 @@ from src.nfl.market.timing import (_latest_target, late_window, nflverse_kickoff
                                    parse_utc, to_et)
 
 FAIL_CONCLUSIONS = {"failure", "timed_out", "startup_failure", "action_required"}
-WATCHED_WORKFLOWS = {"Weekly totals", "Pregame planner", "Settlement", "Collection monitor"}
+# The monitor does not report its own failed runs (that fed back into itself on Oct 24-25 2026); a failed
+# monitor run is reported outside GitHub by its healthchecks.io /fail ping instead.
+WATCHED_WORKFLOWS = {"Weekly totals", "Pregame planner", "Settlement"}
 
 
 def _finding(key: str, title: str, body: str) -> dict:
@@ -92,19 +94,40 @@ def missed_pregame(now: datetime, quotes: pd.DataFrame, schedules: pd.DataFrame,
     return out
 
 
+def settlement_deadline(kickoff: datetime) -> datetime:
+    """When a final game counts as overdue for settlement: the first Tue/Wed/Thu 10:30 AM ET settlement slot at
+    or after kickoff + SETTLE_MIN_HOURS_AFTER_KICKOFF, plus SETTLE_OVERDUE_AFTER_SLOT_HOURS (time for the next
+    day's retry). A Thursday or Sunday night game is settled Tuesday, so it is never flagged over the weekend."""
+    from datetime import time
+    ready = to_et(parse_utc(kickoff) + timedelta(hours=C.SETTLE_MIN_HOURS_AFTER_KICKOFF))
+    for add in range(0, 8):
+        d = (ready + timedelta(days=add)).date()
+        for wd, hh, mm in C.SETTLE_SLOTS_ET:
+            if d.weekday() == wd:
+                slot = datetime.combine(d, time(hh, mm), tzinfo=ready.tzinfo)
+                if slot >= ready:
+                    return slot.astimezone(parse_utc(kickoff).tzinfo) + timedelta(hours=C.SETTLE_OVERDUE_AFTER_SLOT_HOURS)
+    raise AssertionError("unreachable")
+
+
 def unsettled(now: datetime, schedules: pd.DataFrame, pred_dir: Path, ledgers: list[Path]) -> list[dict]:
-    """Key-level check: every (prediction snapshot, game, expected variant) of a verified final game must be
-    in its assigned ledger 36 h after kickoff (ledgers = [v2 ledger, legacy ledger]). One finding per week,
-    stable title, so repeated monitor runs never open repeated issues."""
-    from src.nfl.reporting.ledger import settlement_gaps
+    """Key-level check: every (prediction snapshot, game, expected variant) of a verified final game must be in
+    its assigned ledger once that game's settlement deadline has passed (ledgers = [v2 ledger, legacy ledger]).
+    One finding per week, stable title, so repeated monitor runs never open repeated issues."""
+    from src.nfl.reporting.ledger import settle_reference_kickoff, settlement_gaps
     now = parse_utc(now)
-    gaps = settlement_gaps(schedules, pred_dir, ledgers[0], ledgers[1], now, min_hours_after_kickoff=C.SETTLE_ALERT_HOURS)
+    by_id = schedules.set_index("game_id")
+    gaps = []
+    for g in settlement_gaps(schedules, pred_dir, ledgers[0], ledgers[1], now):
+        k = settle_reference_kickoff(by_id.loc[g["game_id"]])
+        if k is not None and now >= settlement_deadline(k):
+            gaps.append(g)
     out = []
     for week in sorted({g["week"] for g in gaps}):
         rows = [g for g in gaps if g["week"] == week]
         lines = [f"- {g['snapshot_file']} / {g['game_id']} / {g['variant']} ({g['ledger']} ledger)" for g in rows]
         out.append(_finding(f"unsettled-{week}", f"Settlement missing for week {week}",
-                            f"{len(rows)} expected settlement row(s) are missing 36 h after kickoff "
+                            f"{len(rows)} expected settlement row(s) are missing after their settlement deadline "
                             "(final scores are available):\n" + "\n".join(lines)
                             + "\nRun the Settlement workflow (no credits)."))
     return out

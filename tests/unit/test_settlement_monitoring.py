@@ -17,7 +17,7 @@ from tests.unit.test_ledger_legacy import LEGACY_SNAP, SNAP_FILE as LEGACY_FILE,
 
 UTC = timezone.utc
 KICK = datetime(2026, 10, 18, 17, 0, tzinfo=UTC)
-LATE = KICK + timedelta(hours=40)          # past the 36 h alert threshold
+LATE = KICK + timedelta(days=3, hours=1)   # Wed Oct 21 2 PM ET: past Tue 10:30 settlement slot + 26 h
 
 P4_GAME = {"game_id": "2026_07_SEA_DEN", "season": 2026, "week": 7, "away_team": "SEA", "home_team": "DEN",
            "market_total": 44.0, "market_source": "odds_snapshot:20261016T131000Z_thu_scheduled",

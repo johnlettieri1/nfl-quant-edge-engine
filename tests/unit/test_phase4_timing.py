@@ -146,7 +146,7 @@ def test_coverage_from_quote_csvs_counts_valid_rows_per_game(tmp_path):
                  "2026-10-18T16:40:00+00:00,evtA,fanduel,42.5,-110,-110\n"
                  "2026-10-18T16:40:00+00:00,evtB,draftkings,,,\n")      # unpaired/blank row ignored
     c = T.coverage_from_quote_csvs([p])
-    assert c == {"evtA": [(datetime(2026, 10, 18, 16, 40, tzinfo=UTC), 2)]}
+    assert c == {"evtA": [(datetime(2026, 10, 18, 16, 40, tzinfo=UTC), 2, None)]}
 
 
 def test_week_starts_tuesday_midnight_eastern():

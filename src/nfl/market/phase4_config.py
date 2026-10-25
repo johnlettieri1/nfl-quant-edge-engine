@@ -68,7 +68,11 @@ SETTLE_MIN_HOURS_AFTER_KICKOFF = 5 # a final score is used only once nflverse ha
 # ---- Monitoring -------------------------------------------------------------------------------
 MONITOR_START_UTC = "2026-10-22T00:00:00+00:00"   # alerts only for targets/kickoffs after the recovery deploy
 MONITOR_LOOKBACK_DAYS = 8
-SETTLE_ALERT_HOURS = 36            # a predicted, final game still unsettled 36 h after kickoff is an alert
+SETTLE_ALERT_HOURS = 36            # legacy constant (pre Oct 25 2026); replaced by the settlement-slot deadline below
+# Settlement runs Tue/Wed/Thu 10:30 AM ET. A final game is only overdue once the first settlement slot after it
+# became final (kickoff + 5 h) has passed AND the next day's retry has had time to run: slot + 26 h.
+SETTLE_SLOTS_ET = ((1, 10, 30), (2, 10, 30), (3, 10, 30))   # (weekday Mon=0, hour, minute)
+SETTLE_OVERDUE_AFTER_SLOT_HOURS = 26
 RECORDS_STALE_HOURS = 50           # in season, no records commit for 50 h is an alert
 ALERT_LABEL = "collection-alert"
 
