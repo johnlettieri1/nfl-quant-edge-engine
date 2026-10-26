@@ -1,0 +1,12 @@
+{
+ "schema_version": "paid_pull_claim_v1",
+ "claim_id": "claim_20261026T033135Z_sun_night_scheduled_r40264465429-1-1",
+ "claim_ts": "2026-10-26T03:31:35.376849+00:00",
+ "kind": "sun_night_scheduled",
+ "run_id": "40264465429-1-1",
+ "ttl_minutes": 20,
+ "scheduled_target": "2026-10-26T03:30:00+00:00",
+ "event_ids": [],
+ "trigger": "external_dispatch",
+ "note": "intent to make ONE paid odds pull; not a quote and not a capture"
+}
