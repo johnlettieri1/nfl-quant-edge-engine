@@ -225,15 +225,16 @@ class PregameDecision:
         return sorted({t["kickoff"] for t in self.targets})
 
 
-def coverage_from_quote_csvs(paths) -> dict[str, list[tuple[datetime, int]]]:
+def coverage_from_quote_csvs(paths) -> dict[str, list[tuple]]:
     """Per-game coverage from paired-quote files (standard library only).
 
-    Returns {event_id: [(snapshot_dt, n_books_with_a_valid_paired_quote), ...]}. Quote files only ever
-    contain valid two-way totals (same book, same number on both sides), so one row = one book that
-    really quoted that game in that snapshot. A snapshot that exists but did not quote a game gives
-    that game no coverage."""
+    Returns {event_id: [(snapshot_dt, n_books_with_a_valid_paired_quote, kickoff_reported_at_capture), ...]}.
+    Quote files only ever contain valid two-way totals (same book, same number on both sides), so one row =
+    one book that really quoted that game in that snapshot. A snapshot that exists but did not quote a game
+    gives that game no coverage. kickoff_reported_at_capture is the Odds API commence time in that snapshot
+    (None for rows without it)."""
     import csv
-    counts: dict[tuple[str, str], int] = {}
+    counts: dict[tuple[str, str], list] = {}
     for p in paths:
         with open(p, newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f):
@@ -242,11 +243,34 @@ def coverage_from_quote_csvs(paths) -> dict[str, list[tuple[datetime, int]]]:
                     continue
                 if row.get("over_price") in (None, "") or row.get("under_price") in (None, ""):
                     continue
-                counts[(eid, ts)] = counts.get((eid, ts), 0) + 1
-    out: dict[str, list[tuple[datetime, int]]] = {}
-    for (eid, ts), n in counts.items():
-        out.setdefault(eid, []).append((parse_utc(ts), n))
+                c = counts.setdefault((eid, ts), [0, row.get("commence_time_utc_as_reported") or None])
+                c[0] += 1
+    out: dict[str, list[tuple]] = {}
+    for (eid, ts), (n, k_cap) in counts.items():
+        try:
+            kc = parse_utc(k_cap) if k_cap else None
+        except ValueError:
+            kc = None
+        out.setdefault(eid, []).append((parse_utc(ts), n, kc))
     return out
+
+
+def covered_in_window(entries, kickoff: datetime) -> bool:
+    """A game is covered when a snapshot quoted it 10-30 min before its kickoff. Kickoff-shift tolerance
+    (approved Oct 25 2026): a snapshot that was inside the window for the kickoff reported AT CAPTURE still
+    covers the game if the kickoff has since moved by at most KICKOFF_AGREE_TOL_MIN minutes (for example the
+    Odds API moving 8:15 PM to 8:20 PM, or 1:00 PM to 1:05 PM, after we captured). Never after kickoff."""
+    for e in entries or []:
+        ts, n = e[0], e[1]
+        k_cap = e[2] if len(e) > 2 else None
+        if n < 1 or ts >= kickoff:
+            continue
+        if C.PREGAME_WINDOW_MIN <= minutes_to_kickoff(ts, kickoff) <= C.PREGAME_WINDOW_MAX:
+            return True
+        if (k_cap is not None and abs((kickoff - k_cap).total_seconds()) <= C.KICKOFF_AGREE_TOL_MIN * 60
+                and C.PREGAME_WINDOW_MIN <= minutes_to_kickoff(ts, k_cap) <= C.PREGAME_WINDOW_MAX):
+            return True
+    return False
 
 
 def quote_files(odds_dir) -> list:
@@ -299,8 +323,7 @@ def plan_pregame(now: datetime, events: list[tuple[str, datetime]], existing_raw
         mtk = minutes_to_kickoff(now, k)
         if not (C.PREGAME_LATE_MIN <= mtk <= C.PREGAME_WINDOW_MAX):
             continue
-        covered = any(n >= 1 and C.PREGAME_WINDOW_MIN <= minutes_to_kickoff(ts, k) <= C.PREGAME_WINDOW_MAX
-                      for ts, n in coverage.get(eid, []))
+        covered = covered_in_window(coverage.get(eid, []), k)
         if covered:
             continue
         attempts = sum(1 for ts in snaps if 0 < minutes_to_kickoff(ts, k) <= C.PREGAME_ATTEMPT_LOOKBACK_MIN)

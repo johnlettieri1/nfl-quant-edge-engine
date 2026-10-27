@@ -204,3 +204,20 @@ headers (data kept, HALT file written, every later paid pull refused until John 
   pull is skipped (fail closed), which can cost a capture during a GitHub git outage.
 - The heartbeat ping key can only send pings. Anyone holding it could send false "OK" pings, which is why the
   GitHub monitor also checks the records directly.
+
+## Amendment (Oct 25 2026): kickoff-shift tolerance and monitor fixes
+
+- **Kickoff-shift tolerance (approved by John).** The Odds API moved kickoffs by 5 minutes after we had
+  captured them (Thu Oct 22: 8:15 to 8:20 PM; Sun Oct 25: three 1:00 PM games to 1:05 PM). The planner then
+  measured the earlier capture against the new kickoff, found it just outside the 30-minute window and paid for
+  a second pull (2 extra credits that weekend). Now a capture that was inside the 10-30 minute window for the
+  kickoff reported at capture time still covers the game if the kickoff has moved by 5 minutes or less. Never
+  after kickoff; a larger move (a flexed game) still needs its own capture. Both real cases were replayed
+  against the saved records: no second pull.
+- **Settlement alert deadline.** Settlement runs Tue/Wed/Thu, so a Thursday-night game is settled the next
+  Tuesday. The old "36 h after kickoff" rule flagged it on Saturday (false alarm). A final game is now overdue
+  only after the first settlement slot after kickoff + 5 h, plus 26 h for the next day's retry.
+- **No self-feeding failures.** The monitor no longer lists its own failed runs as findings (a failed monitor
+  run is reported by its healthchecks.io /fail ping), and a failure to open GitHub issues no longer fails the
+  job. On Oct 24-25 GitHub Issues were switched off on the repository (forks start with Issues off), so issue
+  creation failed, the job failed, and each next run reported the previous failure.
