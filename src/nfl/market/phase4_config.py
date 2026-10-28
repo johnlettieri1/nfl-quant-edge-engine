@@ -6,16 +6,20 @@ thresholds below are the pre-registered ones (docs/phase4/PREREGISTRATION_WEATHE
 """
 from __future__ import annotations
 
-SPEC_VERSION = "phase4_spec_v1_A1"
+SPEC_VERSION = "phase4_spec_v1_A1+phase5a_spreads"
 ET_ZONE = "America/New_York"
 FORWARD_SEASON_MIN = 2026          # Phase 4 reads 2026+ only; 2023-2025 stays sealed
 HOLDOUT_SEASONS = (2023, 2024, 2025)
 
 # ---- Odds API -------------------------------------------------------------------------------
-ODDS_MARKET = "totals"
-EXPECTED_CREDITS_PER_PULL = 1      # 1 market x up to 10 named books
-CREDIT_RESERVE = 60                # at least this many credits must remain AFTER a normal pull (pay only at 61+)
-WEEKLY_CREDIT_CAP = 30             # refuse a paid pull after this many pulls in the NFL week (Tue 00:00 ET start)
+ODDS_MARKET = "totals"             # the market the totals research reads (unchanged)
+# Phase 5A (approved by John Oct 25 2026): spreads are requested in the SAME pull as totals.
+# The Odds API charges markets x regions; 10 named books count as one region, so 2 markets = 2 credits.
+ODDS_MARKETS = ("totals", "spreads")
+EXPECTED_CREDITS_PER_PULL = 2      # was 1 (totals only); a pull charged more than this writes a HALT file
+CREDIT_RESERVE = 60                # at least this many credits must remain AFTER a normal pull (pay only at 62+)
+WEEKLY_CREDIT_CAP = 60             # CREDITS per NFL week (Tue 00:00 ET start); was 30 one-credit pulls
+SPREAD_KEY_NUMBERS = (3, 7, 6, 10, 4, 14)   # most common NFL winning margins, most important first
 
 # ---- Snapshot kinds -------------------------------------------------------------------------
 # kind -> (ET weekday Mon=0..Sun=6, hour, minute). The workflow fires one cron for EDT and one

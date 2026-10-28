@@ -46,7 +46,7 @@ from src.nfl.market import phase4_config as C
 from src.nfl.market.books import request_bookmakers
 from src.nfl.market.timing import (ET, UTC, coverage_from_quote_csvs, et_date, is_pregame, minutes_to_kickoff,
                                    late_window, nflverse_kickoff_utc, parse_raw_name, parse_utc, plan_pregame,
-                                   pulls_this_week, quote_files, resolve_game_kickoff, snapshot_ts)
+                                   credits_this_week, quote_files, resolve_game_kickoff, snapshot_ts)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ ODDS_DIR = Path("data/odds")
 RAW_SCHEMA = "odds_raw_v2"
 QUOTES_FILE = "quotes_v2.csv"          # legacy combined file (validation snapshot only)
 QUOTES_DIR = "quotes"
+SPREAD_QUOTES_DIR = "spread_quotes"    # Phase 5A: one paired-spread file per snapshot
 HALT_PREFIX = "HALT_"
 QUOTE_FIELDS = ["snapshot_id", "snapshot_ts_utc", "snapshot_kind", "event_id", "game_id", "match_method",
                 "home_team", "away_team", "commence_time_utc_as_reported", "kickoff_nflverse_utc", "kickoff_utc_resolved",
@@ -116,6 +117,69 @@ def _nflverse_kickoff(game_id: str | None, schedules: pd.DataFrame | None):
 
 
 # ---- parsing --------------------------------------------------------------------------------
+
+def _game_context(g: dict, snapshot_dt: datetime, schedules: pd.DataFrame | None) -> dict | None:
+    """Identity and kickoff fields shared by totals and spread rows (same rules for both markets)."""
+    home, away = to_nflverse_code(g["home_team"]), to_nflverse_code(g["away_team"])
+    if home is None or away is None:
+        logger.warning("Unmapped team names: %s @ %s", g.get("away_team"), g.get("home_team"))
+        return None
+    game_id, method = match_game_id(home, away, g["commence_time"], schedules)
+    commence = parse_utc(g["commence_time"])
+    nfl_k = _nflverse_kickoff(game_id, schedules)
+    kr = resolve_game_kickoff(commence, nfl_k)
+    kickoff = kr["kickoff"]
+    return {"event_id": g["id"], "game_id": game_id, "match_method": method, "home_team": home, "away_team": away,
+            "commence_time_utc_as_reported": commence.isoformat(),
+            "kickoff_nflverse_utc": nfl_k.isoformat() if nfl_k else None,
+            "kickoff_utc_resolved": kickoff.isoformat(), "kickoff_source": kr["source"],
+            "kickoff_status": kr["status"], "kickoff_conflict_minutes": kr["conflict_minutes"],
+            "kickoff_et": kickoff.astimezone(ET).isoformat(),
+            "minutes_to_kickoff": round(minutes_to_kickoff(snapshot_dt, kickoff), 1),
+            "is_pregame": is_pregame(snapshot_dt, kickoff)}
+
+
+SPREAD_FIELDS = ["snapshot_id", "snapshot_ts_utc", "snapshot_kind", "event_id", "game_id", "match_method",
+                 "home_team", "away_team", "commence_time_utc_as_reported", "kickoff_nflverse_utc", "kickoff_utc_resolved",
+                 "kickoff_source", "kickoff_status", "kickoff_conflict_minutes", "kickoff_et", "minutes_to_kickoff",
+                 "is_pregame", "book", "home_spread", "home_price", "away_spread", "away_price",
+                 "book_last_update", "quote_age_minutes", "raw_file", "response_sha256", *TIMING_FIELDS]
+
+
+def parse_spread_quotes(raw_games: list[dict], snapshot_id: str, snapshot_dt: datetime, kind: str,
+                        schedules: pd.DataFrame | None, raw_file: str, sha: str, timing: dict | None = None) -> list[dict]:
+    """Phase 5A. One row per (game, book) with a valid PAIRED two-way spread: the home team's number and price
+    and the away team's number and price from the same book in the same snapshot, with the away number exactly
+    the negative of the home number. A book missing either side, naming a team we cannot map, or posting
+    numbers that do not mirror is skipped (never patched). Spread sign: home_spread -3.5 = home favored by 3.5."""
+    timing = {k: (timing or {}).get(k) for k in TIMING_FIELDS}
+    rows = []
+    for g in raw_games:
+        ctx = _game_context(g, snapshot_dt, schedules)
+        if ctx is None:
+            continue
+        for book in g.get("bookmakers", []):
+            for market in book.get("markets", []):
+                if market.get("key") != "spreads":
+                    continue
+                by_team = {}
+                for o in market.get("outcomes", []):
+                    code = to_nflverse_code(o.get("name"))
+                    if code is not None and "point" in o and "price" in o:
+                        by_team[code] = o
+                h, a = by_team.get(ctx["home_team"]), by_team.get(ctx["away_team"])
+                if not (h and a) or float(h["point"]) != -float(a["point"]):
+                    continue
+                lu = market.get("last_update") or book.get("last_update")
+                age = None if not lu else round((snapshot_dt - parse_utc(lu)).total_seconds() / 60.0, 1)
+                rows.append({"snapshot_id": snapshot_id, "snapshot_ts_utc": snapshot_dt.isoformat(), "snapshot_kind": kind,
+                             **ctx, "book": book["key"],
+                             "home_spread": float(h["point"]) + 0.0, "home_price": int(h["price"]),
+                             "away_spread": float(a["point"]) + 0.0, "away_price": int(a["price"]),
+                             "book_last_update": lu, "quote_age_minutes": age,
+                             "raw_file": raw_file, "response_sha256": sha, **timing})
+    return rows
+
 
 def parse_quotes(raw_games: list[dict], snapshot_id: str, snapshot_dt: datetime, kind: str,
                  schedules: pd.DataFrame | None, raw_file: str, sha: str, timing: dict | None = None) -> list[dict]:
@@ -332,16 +396,17 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
         halts = halt_files(odds_dir)
         if halts:
             raise BudgetError(f"halted by {halts[0]}; John's approval is needed before any further pull")
-        used_week = pulls_this_week(now, names)
-        if used_week >= C.WEEKLY_CREDIT_CAP:
-            raise BudgetError(f"weekly cap reached: {used_week} pulls since Tuesday 00:00 ET (cap {C.WEEKLY_CREDIT_CAP})")
+        used_week = credits_this_week(now, names, odds_dir)
+        if used_week + C.EXPECTED_CREDITS_PER_PULL > C.WEEKLY_CREDIT_CAP:
+            raise BudgetError(f"weekly cap reached: {used_week} credits since Tuesday 00:00 ET; another pull costs "
+                              f"{C.EXPECTED_CREDITS_PER_PULL} (cap {C.WEEKLY_CREDIT_CAP} credits)")
         balance = fetch_balance()
         if balance["remaining"] is None:
             raise BudgetError("credit balance header missing; refusing to pull (fail closed)")
         # The reserve must still be intact AFTER a normal pull: pay only if remaining - expected >= reserve
-        # (with reserve 60 and 1 credit per pull: 61 or more remaining). A provider charge above the expected
-        # 1 credit cannot be prevented by a balance check made before the request; it is detected from the
-        # response headers afterwards (HALT file, all further pulls refused).
+        # (reserve 60, 2 credits per totals+spreads pull: 62 or more remaining). A provider charge above the
+        # expected credits cannot be prevented by a balance check made before the request; it is detected from
+        # the response headers afterwards (HALT file, all further pulls refused).
         after = balance["remaining"] - C.EXPECTED_CREDITS_PER_PULL
         if after < C.CREDIT_RESERVE:
             raise BudgetError(f"credit reserve: {balance['remaining']} remaining would leave {after} after this pull "
@@ -381,9 +446,13 @@ def take_snapshot(kind: str, trigger: str = "manual", schedules: pd.DataFrame | 
     rows = parse_quotes(games, snapshot_id, fetched, kind, schedules, raw_path.name, sha, timing)
     if rows:
         write_exclusive(odds_dir / QUOTES_DIR / f"quotes_{snapshot_id}.csv", _csv_bytes(rows, QUOTE_FIELDS))
+    srows = parse_spread_quotes(games, snapshot_id, fetched, kind, schedules, raw_path.name, sha, timing)
+    if srows:
+        write_exclusive(odds_dir / SPREAD_QUOTES_DIR / f"spread_quotes_{snapshot_id}.csv", _csv_bytes(srows, SPREAD_FIELDS))
     summary = {"snapshot_id": snapshot_id, "kind": kind, "raw_path": str(raw_path), "claim_id": claim_id or None,
                "games": len(games), **timing,
-               "quote_rows": len(rows), "unmatched_games": len({r["event_id"] for r in rows if r["game_id"] is None}),
+               "quote_rows": len(rows), "spread_quote_rows": len(srows),
+               "unmatched_games": len({r["event_id"] for r in rows if r["game_id"] is None}),
                "books_returned": sorted({r["book"] for r in rows}), "x_requests_last": last,
                "x_requests_remaining": res.get("x_requests_remaining")}
     logger.info("Odds snapshot %s", json.dumps(summary))
@@ -435,4 +504,23 @@ def load_quotes(odds_dir: Path = ODDS_DIR) -> pd.DataFrame:
         sorted((odds_dir / QUOTES_DIR).glob("quotes_*.csv"))
     if not paths:
         return pd.DataFrame(columns=QUOTE_FIELDS)
+    return pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)
+
+
+def spread_quotes_from_raw(odds_dir: Path = ODDS_DIR, schedules: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Rebuild paired spread quotes from the raw envelopes (raw is the source of truth). Snapshots taken before
+    Phase 5A requested spreads simply contribute no rows."""
+    rows = []
+    for snap in iter_raw_snapshots(odds_dir):
+        if snap["http_status"] != 200:
+            continue
+        rows += parse_spread_quotes(snap["games"], snap["snapshot_id"], snap["snapshot_dt"], snap["kind"], schedules,
+                                    snap["raw_file"], snap["sha"], snap.get("timing"))
+    return pd.DataFrame(rows, columns=SPREAD_FIELDS)
+
+
+def load_spread_quotes(odds_dir: Path = ODDS_DIR) -> pd.DataFrame:
+    paths = sorted((odds_dir / SPREAD_QUOTES_DIR).glob("spread_quotes_*.csv"))
+    if not paths:
+        return pd.DataFrame(columns=SPREAD_FIELDS)
     return pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)

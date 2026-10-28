@@ -41,8 +41,9 @@ What this token can and cannot do (please read):
   repository also lets the holder start any workflow with any inputs (including a paid manual snapshot), re-run
   or cancel runs, delete run logs, artifacts and caches, and turn workflows on or off.
 - It cannot read secret values, change code, change repository settings or reach any other repository.
-- If it ever leaked, paid misuse is limited by the safety guards: at most 30 pulls per NFL week, no pull unless
-  at least 60 credits would remain afterwards, and HALT on any pull that costs more than 1 credit. Revoke it right away (Part 7).
+- If it ever leaked, paid misuse is limited by the safety guards: at most 60 credits per NFL week (each pull is
+  2 credits since Phase 5A added spreads), no pull unless at least 60 credits would remain afterwards, and HALT on
+  any pull that costs more than 2 credits. Revoke it right away (Part 7).
 - After the PR is merged, delete old feature branches you no longer need. A workflow can be started on any
   existing branch, so fewer branches means less old code that could be started.
 
@@ -165,7 +166,7 @@ None of these steps spends an Odds API credit.
 4. **Weekly gate (optional, only in a safe time):** test run job 1 only during one of these periods, when no
    scheduled window is open: Wednesday 5:00 AM to Thursday 9:00 AM, Friday 4:00 AM to Saturday 9:00 AM, or
    Monday 6:00 PM to Tuesday 10:00 AM (all ET). The log must say `kind=none` and `no live scheduled window`.
-   Outside those periods a test run could take a real 1-credit snapshot (this is safe and capped, but it is
+   Outside those periods a test run could take a real 2-credit snapshot (this is safe and capped, but it is
    not a no-cost test).
 5. **Header check:** in each cron-job.org job's execution history the status should be 204. If you see 401,
    re-enter the `Authorization` header (it must start with `Bearer ` and a space).
@@ -206,5 +207,5 @@ None of these steps spends an Odds API credit.
 | Stop everything | Disable all four workflows in GitHub Actions and switch off all cron-job.org jobs. In healthchecks.io, **Pause** each check so it does not email you. |
 | Resume | Re-enable the workflows, switch the jobs back on, un-pause the checks. |
 
-A HALT file on the records branch (created automatically if a pull ever costs more than 1 credit) also stops
+A HALT file on the records branch (created automatically if a pull ever costs more than 2 credits) also stops
 every paid pull until you approve removing it. Settlement and monitoring continue during a HALT.

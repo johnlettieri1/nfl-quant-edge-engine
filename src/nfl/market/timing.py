@@ -339,7 +339,7 @@ def plan_pregame(now: datetime, events: list[tuple[str, datetime]], existing_raw
         if deferred:
             return PregameDecision(False, f"waiting for a scheduled snapshot due in the window of {len(deferred)} game(s)")
         return PregameDecision(False, "no uncovered game in the pregame window")
-    if credits_used_this_week is not None and credits_used_this_week >= C.WEEKLY_CREDIT_CAP:
+    if credits_used_this_week is not None and credits_used_this_week + C.EXPECTED_CREDITS_PER_PULL > C.WEEKLY_CREDIT_CAP:
         return PregameDecision(False, f"weekly credit cap {C.WEEKLY_CREDIT_CAP} reached", wanted)
     return PregameDecision(True, f"{len(wanted)} uncovered game(s) in window", wanted)
 
@@ -348,3 +348,29 @@ def pulls_this_week(now: datetime, existing_raw_names: list[str]) -> int:
     start = nfl_week_start(now)
     return sum(1 for p in (parse_raw_name(n) for n in existing_raw_names)
                if p and p[0] >= start and p[1] in C.ALL_KINDS and p[1] != "legacy_current")
+
+
+def credits_this_week(now: datetime, existing_raw_names: list[str], odds_dir=None) -> int:
+    """Credits spent since Tuesday 00:00 ET. With odds_dir, each pull counts what the API actually charged
+    (x_requests_last in its raw envelope); otherwise, or when that header is missing, each pull is counted at
+    the current EXPECTED_CREDITS_PER_PULL (conservative for older 1-credit pulls)."""
+    import json
+    from pathlib import Path
+    start = nfl_week_start(now)
+    total = 0
+    for n in existing_raw_names:
+        p = parse_raw_name(n)
+        if not p or p[0] < start or p[1] not in C.ALL_KINDS or p[1] == "legacy_current":
+            continue
+        cost = None
+        if odds_dir is not None:
+            try:
+                env = json.loads((Path(odds_dir) / "raw" / n).read_text(encoding="utf-8"))
+                cost = env.get("x_requests_last") if isinstance(env, dict) else None
+            except (OSError, ValueError):
+                cost = None
+        try:
+            total += int(float(cost)) if cost is not None else C.EXPECTED_CREDITS_PER_PULL
+        except (TypeError, ValueError):
+            total += C.EXPECTED_CREDITS_PER_PULL
+    return total

@@ -184,10 +184,11 @@ reject paid `manual` kinds from the automation actor.
 | Settlement, monitor, gates, /events | 0 | 0 |
 | **Total** | **about 11** | **about 13 to 18** |
 
-Hard limits stay: 30 per NFL week; pay only if at least 60 credits remain AFTER the expected 1-credit pull
-(61 or more before it; 60 or fewer is refused; an unknown balance is refused); HALT on any pull that costs
-more than 1. A balance check made before the request cannot stop a provider that charges more than the
-expected 1 credit: such a charge can take the balance below 60, and is caught afterwards from the response
+Hard limits (amended by Phase 5A, Oct 2026: a pull is totals + spreads = 2 credits): 60 credits per NFL week; pay only
+if at least 60 credits remain AFTER the expected 2-credit pull (62 or more before it; 61 or fewer is refused; an
+unknown balance is refused); HALT on any pull that costs
+more than 2. A balance check made before the request cannot stop a provider that charges more than the
+expected 2 credits: such a charge can take the balance below 60, and is caught afterwards from the response
 headers (data kept, HALT file written, every later paid pull refused until John approves).
 
 ## 8. Known reliability limitations
