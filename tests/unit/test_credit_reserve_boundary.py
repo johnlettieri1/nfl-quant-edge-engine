@@ -1,4 +1,5 @@
-"""Correction 2: at least 60 credits must remain AFTER a normal one-credit pull (pay only with 61+ remaining).
+"""At least 60 credits must remain AFTER a normal pull. Phase 5A: a pull is totals + spreads = 2 credits,
+so pay only with 62+ remaining (was 61+ with 1-credit pulls).
 
 A balance check made before the request cannot stop a provider that charges more than the expected credit;
 that case is caught from the response headers afterwards (HALT file), which is tested here too."""
@@ -17,7 +18,7 @@ NOW = datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc)
 
 
 class Fake:
-    def __init__(self, remaining, last="1"):
+    def __init__(self, remaining, last="2"):
         self.remaining, self.last, self.calls = remaining, last, 0
 
     def balance(self):
@@ -33,7 +34,7 @@ class Fake:
 
 @pytest.fixture
 def fake(monkeypatch):
-    def make(remaining, last="1"):
+    def make(remaining, last="2"):
         f = Fake(remaining, last)
         monkeypatch.setattr(O, "fetch_balance", f.balance)
         monkeypatch.setattr(O, "fetch_totals_raw", f.totals)
@@ -42,10 +43,10 @@ def fake(monkeypatch):
 
 
 def test_policy_constants_unchanged():
-    assert (C.CREDIT_RESERVE, C.EXPECTED_CREDITS_PER_PULL, C.WEEKLY_CREDIT_CAP) == (60, 1, 30)
+    assert (C.CREDIT_RESERVE, C.EXPECTED_CREDITS_PER_PULL, C.WEEKLY_CREDIT_CAP) == (60, 2, 60)
 
 
-@pytest.mark.parametrize("remaining", [0, 1, 59, 60])
+@pytest.mark.parametrize("remaining", [0, 1, 59, 60, 61])
 def test_refuses_when_the_reserve_would_not_survive_the_pull(tmp_path, fake, remaining):
     f = fake(remaining)
     with pytest.raises(O.BudgetError, match="credit reserve"):
@@ -53,8 +54,8 @@ def test_refuses_when_the_reserve_would_not_survive_the_pull(tmp_path, fake, rem
     assert f.calls == 0 and not (tmp_path / "raw").exists()
 
 
-@pytest.mark.parametrize("remaining", [61, 62, 495])
-def test_pays_when_60_still_remain_after_a_one_credit_pull(tmp_path, fake, remaining):
+@pytest.mark.parametrize("remaining", [62, 63, 495])
+def test_pays_when_60_still_remain_after_a_two_credit_pull(tmp_path, fake, remaining):
     f = fake(remaining)
     s = O.take_snapshot("manual", schedules=SCHED, odds_dir=tmp_path, now=NOW)
     assert f.calls == 1 and int(s["x_requests_remaining"]) >= C.CREDIT_RESERVE
@@ -67,8 +68,8 @@ def test_unknown_balance_fails_closed(tmp_path, fake):
     assert f.calls == 0
 
 
-def test_weekly_cap_still_applies_at_61(tmp_path, fake):
-    f = fake(61)
+def test_weekly_cap_still_applies_with_enough_balance(tmp_path, fake):
+    f = fake(400)
     raw = tmp_path / "raw"; raw.mkdir()
     for i in range(30):
         (raw / f"totals_202610{14 + i // 24:02d}T{i % 24:02d}0000Z_pregame_window.json").write_text("{}")
@@ -78,13 +79,13 @@ def test_weekly_cap_still_applies_at_61(tmp_path, fake):
 
 
 def test_unexpected_provider_charge_cannot_be_prevented_but_halts_everything_after(tmp_path, fake):
-    """At 61 remaining the preflight allows a 1-credit pull. If the provider charges 3, the reserve is
+    """At 62 remaining the preflight allows a 2-credit pull. If the provider charges 4, the reserve is
     breached (58 left) and only the post-response check can react: data kept, HALT written, next pull refused."""
-    f = fake(61, last="3")
+    f = fake(62, last="4")
     with pytest.raises(O.CostAnomalyError):
         O.take_snapshot("manual", schedules=SCHED, odds_dir=tmp_path, now=NOW)
     assert f.calls == 1 and any(p.name.startswith("HALT_") for p in (tmp_path / "raw").iterdir())
-    f.remaining, f.last = 400, "1"
+    f.remaining, f.last = 400, "2"
     with pytest.raises(O.BudgetError, match="halted"):
         O.take_snapshot("manual", schedules=SCHED, odds_dir=tmp_path, now=NOW)
     assert f.calls == 1

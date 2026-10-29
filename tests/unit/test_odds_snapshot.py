@@ -137,12 +137,12 @@ def test_weekly_cap_refuses_without_spending(tmp_path, api):
 
 
 def test_cost_anomaly_keeps_data_and_stops(tmp_path, api):
-    api.last = "2"
+    api.last = "3"                                                  # expected 2 (totals + spreads)
     with pytest.raises(O.CostAnomalyError):
         O.take_snapshot("manual", schedules=SCHED, odds_dir=tmp_path, now=SNAP_DT)
     assert len(list((tmp_path / "raw").glob("totals_*.json"))) == 1 and len(O.load_quotes(tmp_path)) == 6
     assert O.halt_files(tmp_path)                                   # HALT marker written
-    api.last = "1"
+    api.last = "2"
     with pytest.raises(O.BudgetError, match="halted"):             # every later pull refused, nothing spent
         O.take_snapshot("manual", schedules=SCHED, odds_dir=tmp_path, now=SNAP_DT)
     assert api.calls == 1

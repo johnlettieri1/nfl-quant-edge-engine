@@ -13,7 +13,7 @@ the script changes into the repo root so relative data/ paths resolve.
   python run.py analyze PRED_CSV --label NAME [--out DIR]
       Bucket/side/season/calibration/trend analysis of any predictions file.
   python run.py odds --kind KIND [--trigger T] [--targets JSON] [--no-weather]
-      Phase 4: one per-book totals snapshot (1 credit, frozen 10-book list) plus the forecast-weather
+      Phase 4/5A: one per-book totals + spreads snapshot (2 credits, frozen 10-book list) plus the forecast-weather
       capture linked to it. KIND: tue_scheduled, thu_scheduled, sat_scheduled, sun_scheduled,
       sun_night_scheduled, pregame_window, manual. Budget preflight refuses unless the credit reserve
       remains intact after the pull.

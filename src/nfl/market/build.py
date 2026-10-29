@@ -12,12 +12,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.nfl.data.odds_snapshot import ODDS_DIR, quotes_from_raw
+from src.nfl.data.odds_snapshot import ODDS_DIR, quotes_from_raw, spread_quotes_from_raw
 from src.nfl.data.weather_forecast import WEATHER_DIR, load_forecasts
 from src.nfl.market import phase4_config as C
 from src.nfl.market.clv import build_clv_events, edge_bucket, summarize_clv
 from src.nfl.market.line_shopping import build_line_shopping, shopping_frequencies
 from src.nfl.market.movement import apply_game_kickoff, build_movement
+from src.nfl.market.spread_tables import build_spread_line_shopping, build_spread_movement
 from src.nfl.market.timing import parse_utc
 
 OUT_DIR = Path("data/derived/phase4")
@@ -130,8 +131,17 @@ def build_all(schedules: pd.DataFrame, odds_dir: Path = ODDS_DIR, weather_dir: P
         fwd.append(row)
     fwd = pd.DataFrame(fwd)
 
+    # Phase 5A spreads (research only): same kickoff policy, same holdout seal
+    squotes = apply_game_kickoff(spread_quotes_from_raw(odds_dir, sched), sched)
+    assert_forward_only(squotes.game_id)
+    sls = build_spread_line_shopping(squotes)
+    margins = {r.game_id: float(r.home_score - r.away_score) for r in sched.itertuples()
+               if pd.notna(r.home_score) and pd.notna(r.away_score)}
+    smv = build_spread_movement(sls, margins)
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    tables = {"quotes_rebuilt": quotes, "line_shopping": ls, "movement": mv, "clv_events": ev, "forward_dataset": fwd}
+    tables = {"quotes_rebuilt": quotes, "line_shopping": ls, "movement": mv, "clv_events": ev, "forward_dataset": fwd,
+              "spread_quotes_rebuilt": squotes, "spread_line_shopping": sls, "spread_movement": smv}
     for name, df in tables.items():
         df.to_csv(out_dir / f"{name}.csv", index=False)
     summary = {"spec_version": C.SPEC_VERSION,
@@ -139,7 +149,9 @@ def build_all(schedules: pd.DataFrame, odds_dir: Path = ODDS_DIR, weather_dir: P
                "games": int(quotes.game_key.nunique()) if len(quotes) else 0,
                "shopping_ny_actionable": shopping_frequencies(ls, "ny_") if len(ls) else {},
                "shopping_all_observed": shopping_frequencies(ls, "all_") if len(ls) else {},
-               "reference_rows": int(ls.ref_book.notna().sum()) if len(ls) and "ref_book" in ls else 0}
+               "reference_rows": int(ls.ref_book.notna().sum()) if len(ls) and "ref_book" in ls else 0,
+               "spread_snapshots": int(squotes.snapshot_id.nunique()) if len(squotes) else 0,
+               "spread_games": int(squotes.game_key.nunique()) if len(squotes) else 0}
     if len(ev):
         summarize_clv(ev).to_csv(out_dir / "clv_summary.csv", index=False)
         summarize_clv(ev, ["action_kind"]).to_csv(out_dir / "clv_summary_by_timing.csv", index=False)

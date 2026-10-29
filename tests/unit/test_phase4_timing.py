@@ -136,7 +136,9 @@ def test_planner_stops_on_halt_file():
 
 
 def test_planner_respects_weekly_cap():
-    assert not T.plan_pregame(K - timedelta(minutes=20), E, [], credits_used_this_week=30).pull
+    assert not T.plan_pregame(K - timedelta(minutes=20), E, [], credits_used_this_week=60).pull
+    assert not T.plan_pregame(K - timedelta(minutes=20), E, [], credits_used_this_week=59).pull   # 59 + 2 > 60
+    assert T.plan_pregame(K - timedelta(minutes=20), E, [], credits_used_this_week=58).pull       # 58 + 2 = 60
 
 
 def test_coverage_from_quote_csvs_counts_valid_rows_per_game(tmp_path):

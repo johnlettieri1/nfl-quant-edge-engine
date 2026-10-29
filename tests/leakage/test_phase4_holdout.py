@@ -58,7 +58,8 @@ def test_no_units_thresholds_or_bets_in_phase4_code():
     for p in list((ROOT / "src/nfl/market").glob("*.py")) + [ROOT / "src/nfl/reporting/ledger.py"]:
         text = p.read_text().lower()
         assert "kelly" not in text and "best bet" not in text
-    assert C.WEEKLY_CREDIT_CAP == 30 and C.CREDIT_RESERVE == 60
+    # Phase 5A (approved Oct 25 2026): totals + spreads in one pull = 2 credits; weekly cap counted in credits
+    assert C.WEEKLY_CREDIT_CAP == 60 and C.CREDIT_RESERVE == 60 and C.EXPECTED_CREDITS_PER_PULL == 2
 
 
 def test_terminology_no_opener_or_closing_in_phase4_outputs():

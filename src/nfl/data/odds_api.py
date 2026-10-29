@@ -95,11 +95,14 @@ def fetch_balance() -> dict:
 
 
 def fetch_totals_raw(bookmakers: list[str]) -> dict:
-    """Phase 4 paid pull: NFL totals for an explicit book list (<= 10 books = 1 credit).
-    Returns the exact response bytes so the stored hash is verifiable. Never retries."""
+    """Phase 4/5A paid pull: NFL totals AND spreads for an explicit book list in ONE request
+    (<= 10 named books = 1 region; 2 markets = 2 credits). Returns the exact response bytes so the stored
+    hash is verifiable. Never retries. (Name kept for compatibility; the totals research is unchanged.)"""
+    from src.nfl.market.phase4_config import ODDS_MARKETS
     if not bookmakers or len(bookmakers) > 10:
-        raise OddsAPIError("Phase 4 pulls must name 1-10 bookmakers (1 credit)")
-    params = {"markets": "totals", "oddsFormat": "american", "dateFormat": "iso", "bookmakers": ",".join(bookmakers)}
+        raise OddsAPIError("Phase 4 pulls must name 1-10 bookmakers (one region)")
+    params = {"markets": ",".join(ODDS_MARKETS), "oddsFormat": "american", "dateFormat": "iso",
+              "bookmakers": ",".join(bookmakers)}
     started = datetime.now(timezone.utc).isoformat()
     r = _request(f"/sports/{SPORT_KEY}/odds", params)
     return {"endpoint": f"/v4/sports/{SPORT_KEY}/odds", "request_params": params, "http_status": r.status_code,
