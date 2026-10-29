@@ -3,7 +3,8 @@
 Written Oct 29 2026, BEFORE any Phase 5B model was fit. Nothing below changes after the first run.
 Any later change is logged in a "Deviations" section of the report with the reason.
 
-Status: DRAFT, awaiting John's approval. No model has been run.
+Status: APPROVED by John, Oct 29 2026 ("approve, and ok for #2"). Frozen from this point. Section 10 scoping
+(model-pick CLV ledger deferred until a model passes) confirmed.
 
 ## 1. Question
 

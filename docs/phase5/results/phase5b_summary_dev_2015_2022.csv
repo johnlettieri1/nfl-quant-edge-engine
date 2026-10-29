@@ -1,0 +1,9 @@
+candidate,n,mae_market,mae_model,bar1_mean_diff,bar1_lo95,bar1_hi95,bar1_lo_family,bar1_hi_family,bar1_pass,picks,cover_rate,bar2_lo95,bar2_hi95,bar2_lo_family,bar2_hi_family,bar2_pass,PASS,clears_52.4_point,clears_52.4_lower95
+s1_line,2079,9.847,9.862,0.015,0.002,0.027,-0.003,0.032,False,2025,0.476,0.4544,0.4978,0.4458,0.5064,False,False,False,False
+s2_elo,2079,9.847,9.867,0.02,-0.005,0.045,-0.015,0.054,False,2025,0.4973,0.4755,0.519,0.467,0.5276,False,False,False,False
+s3_margin4,2079,9.847,9.867,0.019,-0.007,0.046,-0.017,0.058,False,2025,0.4993,0.4775,0.521,0.4689,0.5296,False,False,False,False
+s4_scoring,2079,9.847,9.862,0.015,-0.016,0.047,-0.028,0.059,False,2025,0.5126,0.4908,0.5343,0.4822,0.5429,False,False,False,False
+s5_form_xpl,2079,9.847,9.857,0.01,-0.027,0.045,-0.039,0.061,False,2025,0.5096,0.4879,0.5314,0.4793,0.5399,False,False,False,False
+s6_qb,2079,9.847,9.862,0.015,-0.019,0.05,-0.032,0.065,False,2025,0.4928,0.4711,0.5146,0.4625,0.5232,False,False,False,False
+s3_2013,2079,9.847,9.896,0.049,0.0,0.097,-0.019,0.115,False,2025,0.5096,0.4879,0.5314,0.4793,0.5399,False,False,False,False
+s7_inj,2079,9.847,9.915,0.067,0.015,0.12,-0.006,0.139,False,2025,0.5052,0.4834,0.5269,0.4748,0.5355,False,False,False,False
