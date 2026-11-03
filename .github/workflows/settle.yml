@@ -73,7 +73,7 @@ jobs:
 
       - name: Copy ledgers only
         run: |
-          for f in totals_ledger_v2.csv totals_ledger_legacy_pre_spec.csv; do
+          for f in totals_ledger_v2.csv totals_ledger_legacy_pre_spec.csv sheet_ledger.csv; do
             if [ -f "code/data/predictions/$f" ]; then cp "code/data/predictions/$f" "records/data/predictions/$f"; fi
           done
 

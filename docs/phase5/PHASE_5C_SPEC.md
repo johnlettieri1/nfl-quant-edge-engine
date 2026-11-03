@@ -1,6 +1,7 @@
 # Phase 5C spec: weekly spread sheet support
 
-Drafted Nov 1 2026. Status: DRAFT, awaiting John's approval. Nothing built yet.
+Drafted Nov 1 2026. Status: APPROVED by John Nov 3 2026 ("1- yes", Week 8 backfill "2-yes"). Build
+amendments are in section 9.
 
 ## 1. Goal
 
@@ -82,3 +83,22 @@ historical records, the 2023-2025 holdout, credit settings (2 per pull, HALT abo
 
 1. Approve this scope as written?
 2. OK to backfill Week 8 from the saved card as the first results entry?
+
+## 9. Amendments made during the build (Nov 3 2026)
+
+- **A1, confidence rule wording.** Section 4 listed "crosses 3 or 7" under both High and Medium. Built as: High =
+  the pick gets 1.5+ points vs DraftKings; Medium = 0.5 to 1.0 points that cross 3 or 7, or 1.0+ points that do
+  not; Low = anything else; a questionable or doubtful starting QB caps the label at Low. The card stores the
+  rule label (`rule_confidence`) beside the label used, so any override is visible.
+- **A2, file location.** Cards go to `data/predictions/sheet/` and the ledger to `data/predictions/sheet_ledger.csv`
+  (not `data/sheet/`), so the existing records guard covers them without widening its allowed paths. The ledger
+  is added to the guard's append-only list and to the settle workflow's copy step. Sheet settlement runs inside
+  `settle` in its own try block, so it can never fail or delay totals settlement; `settle-verify` is unchanged.
+- **A3, one card per week.** A second card for the same week is refused, so no game can be settled twice.
+  Corrections need John's call.
+- **A4, Week 8 backfill source.** The Thursday Oct 29 morning pull ran before spread collection went live; our
+  first DraftKings spread snapshot (7:45 PM ET) came after the card was made. The Week 8 card therefore records
+  the DraftKings numbers documented on the saved card (`dk_source = card_web`), not a snapshot. Closing numbers
+  and results come from our own snapshots and nflverse finals. Labeled `backfill = true`.
+- **A5, team codes.** Sheet spellings are normalized to nflverse codes (LAR -> LA, WSH -> WAS, JAC -> JAX, ...);
+  a card is refused if any row fails to match a collected game.
