@@ -213,6 +213,35 @@ def cmd_record_results(a):
     sched = fetch_schedules()
     n = record_results(sched, now=as_of)
     print(json.dumps({"appended": n, "as_of": as_of.isoformat(), **summarize()}, indent=1))
+    # Phase 5C: pick-sheet settlement. Isolated so it can never fail or delay totals settlement.
+    try:
+        from src.nfl.market.sheet_check import settle_sheets
+        print(json.dumps({"sheet_rows_settled": settle_sheets(sched, now=as_of)}))
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("sheet settlement skipped: %s", exc)
+
+
+def cmd_sheet_check(a):
+    """Phase 5C: compare a transcribed pick sheet with collected spread quotes (no credits). With --card, also
+    validates the pick columns and writes the immutable weekly card under --pred-dir/sheet/."""
+    from datetime import datetime, timezone
+    import pandas as pd
+    from src.nfl.data.odds_snapshot import load_spread_quotes
+    from src.nfl.market.sheet_check import build_card, check_sheet, format_table, write_card
+    sheet = pd.read_csv(a.sheet, dtype=str)
+    sheet["sheet_order"] = sheet["sheet_order"].astype(int)
+    as_of = datetime.fromisoformat(a.as_of.replace("Z", "+00:00")) if a.as_of else datetime.now(timezone.utc)
+    chk = check_sheet(sheet, load_spread_quotes(Path(a.odds_dir)), as_of)
+    print("LINE SHOPPING + INJURY CHECKS ONLY: not a spread model (Phase 5B found no edge). Units: 0.")
+    print(format_table(chk))
+    if a.card:
+        card = build_card(sheet, chk, a.season, a.week, as_of, backfill=a.backfill)
+        print(json.dumps({"card": str(write_card(card, Path(a.pred_dir)))}))
+
+
+def cmd_sheet_summary(a):
+    from src.nfl.market.sheet_check import summarize_sheet
+    print(json.dumps(summarize_sheet(Path(a.ledger)), indent=1, default=float))
 
 
 def cmd_settle_verify(a):
@@ -364,6 +393,13 @@ def main():
     s = sub.add_parser("record-results"); s.set_defaults(fn=cmd_record_results)
     s = sub.add_parser("settle"); s.add_argument("--as-of", help="ISO UTC time used for the verified-final rule")
     s.set_defaults(fn=cmd_record_results)
+    s = sub.add_parser("sheet-check"); s.add_argument("--sheet", required=True); s.add_argument("--odds-dir", default="data/odds")
+    s.add_argument("--as-of", help="ISO UTC; only snapshots at or before it are used (default now)")
+    s.add_argument("--card", action="store_true", help="validate picks and write the immutable weekly card")
+    s.add_argument("--season", type=int); s.add_argument("--week", type=int); s.add_argument("--backfill", action="store_true")
+    s.add_argument("--pred-dir", default="data/predictions"); s.set_defaults(fn=cmd_sheet_check)
+    s = sub.add_parser("sheet-summary"); s.add_argument("--ledger", default="data/predictions/sheet_ledger.csv")
+    s.set_defaults(fn=cmd_sheet_summary)
     s = sub.add_parser("settle-verify"); s.add_argument("--pred-dir", required=True); s.add_argument("--as-of", required=True)
     s.set_defaults(fn=cmd_settle_verify)
     s = sub.add_parser("monitor"); s.add_argument("--records", required=True); s.add_argument("--runs-json")
