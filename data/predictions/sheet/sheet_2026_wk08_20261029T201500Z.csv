@@ -1,0 +1,15 @@
+season,week,game_id,sheet_order,away_team,home_team,fav_team,sheet_line,sheet_home_spread,pick_team,pick_side,pick_line_display,confidence,favorite_pick,check_ts_utc,dk_snapshot_id,dk_home_spread_at_check,first_dk_home_spread,best_ny_home_spread,best_ny_away_spread,pinnacle_home_spread,edge_side,edge_pts,pick_edge_pts,key_flag,minor_key_flag,stale_flag,rule_confidence,dk_source,backfill,note
+2026,8,2026_08_CAR_GB,1,CAR,GB,GB,3.5,-3.5,CAR,away,+3.5,Low,False,2026-10-29T20:15:00+00:00,,-3.5,,,,,,0.0,0.0,,,False,Low,card_web,True,Backfill from week-8-pick-card-2026.md (saved Oct 29 before TNF)
+2026,8,2026_08_MIN_DET,2,MIN,DET,DET,3.5,-3.5,MIN,away,+3.5,Medium,False,2026-10-29T20:15:00+00:00,,-3.0,,,,,away,0.5,0.5,3,,False,Medium,card_web,True,
+2026,8,2026_08_TEN_CIN,3,TEN,CIN,CIN,10.5,-10.5,TEN,away,+10.5,Low,False,2026-10-29T20:15:00+00:00,,-10.0,,,,,away,0.5,0.5,,10,False,Low,card_web,True,
+2026,8,2026_08_BAL_BUF,4,BAL,BUF,BUF,3.5,-3.5,BAL,away,+3.5,Medium,False,2026-10-29T20:15:00+00:00,,-3.0,,,,,away,0.5,0.5,3,,False,Medium,card_web,True,
+2026,8,2026_08_ARI_DAL,5,ARI,DAL,DAL,6.5,-6.5,DAL,home,-6.5,Medium,False,2026-10-29T20:15:00+00:00,,-7.0,,,,,home,0.5,0.5,7,,False,Medium,card_web,True,Changed from Cardinals on the card
+2026,8,2026_08_IND_JAX,6,IND,JAX,JAX,7.5,-7.5,JAX,home,-7.5,High,True,2026-10-29T20:15:00+00:00,,-10.0,,,,,home,2.5,2.5,,10,True,High,card_web,True,Favorite pick
+2026,8,2026_08_CLE_PIT,7,CLE,PIT,PIT,3.5,-3.5,CLE,away,+3.5,Low,False,2026-10-29T20:15:00+00:00,,-3.5,,,,,,0.0,0.0,,,False,Low,card_web,True,
+2026,8,2026_08_ATL_TB,8,ATL,TB,TB,2.5,-2.5,TB,home,-2.5,Low,False,2026-10-29T20:15:00+00:00,,-2.5,,,,,,0.0,0.0,,,False,Low,card_web,True,
+2026,8,2026_08_LV_NYJ,9,LV,NYJ,NYJ,1.5,-1.5,LV,away,+1.5,Low,False,2026-10-29T20:15:00+00:00,,-1.5,,,,,,0.0,0.0,,,False,Low,card_web,True,
+2026,8,2026_08_LAC_LA,10,LAC,LA,LA,6.5,-6.5,LAC,away,+6.5,Low,False,2026-10-29T20:15:00+00:00,,-6.5,,,,,,0.0,0.0,,,False,Low,card_web,True,
+2026,8,2026_08_NE_MIA,11,NE,MIA,NE,7.5,7.5,MIA,home,+7.5,Medium,False,2026-10-29T20:15:00+00:00,,7.0,,,,,home,0.5,0.5,7,,False,Medium,card_web,True,
+2026,8,2026_08_KC_DEN,12,KC,DEN,KC,1.5,1.5,DEN,home,+1.5,Low,False,2026-10-29T20:15:00+00:00,,1.5,,,,,,0.0,0.0,,,False,Low,card_web,True,
+2026,8,2026_08_PHI_WAS,13,PHI,WAS,WAS,4.5,-4.5,WAS,home,-4.5,High,False,2026-10-29T20:15:00+00:00,,-6.0,,,,,home,1.5,1.5,,6,True,High,card_web,True,
+2026,8,2026_08_CHI_SEA,14,CHI,SEA,SEA,3.5,-3.5,CHI,away,+3.5,Medium,False,2026-10-29T20:15:00+00:00,,-3.0,,,,,away,0.5,0.5,3,,False,Medium,card_web,True,
