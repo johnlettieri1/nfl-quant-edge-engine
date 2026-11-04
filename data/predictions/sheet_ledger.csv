@@ -1,0 +1,15 @@
+card_file,season,week,game_id,away_team,home_team,pick_team,pick_side,sheet_home_spread,dk_home_spread_at_check,dk_home_spread_close,close_snapshot_id,home_score,away_score,margin,result_sheet,result_dk_check,result_dk_close,pick_edge_pts,key_flag,stale_flag,confidence,favorite_pick,backfill,settled_at
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_CAR_GB,CAR,GB,CAR,away,-3.5,-3.5,-3.5,20261029T234547Z_pregame_window,27,19,8.0,L,L,L,0.0,,False,Low,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_MIN_DET,MIN,DET,MIN,away,-3.5,-3.0,-3.0,20261101T173052Z_pregame_window,19,15,4.0,L,L,L,0.5,3,False,Medium,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_TEN_CIN,TEN,CIN,TEN,away,-10.5,-10.0,-13.5,20261101T173052Z_pregame_window,43,36,7.0,W,W,W,0.5,,False,Low,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_BAL_BUF,BAL,BUF,BAL,away,-3.5,-3.0,-3.0,20261101T173052Z_pregame_window,36,10,26.0,L,L,L,0.5,3,False,Medium,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_ARI_DAL,ARI,DAL,DAL,home,-6.5,-7.0,-7.0,20261101T173052Z_pregame_window,30,33,-3.0,L,L,L,0.5,7,False,Medium,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_IND_JAX,IND,JAX,JAX,home,-7.5,-10.0,-10.0,20261101T173052Z_pregame_window,42,7,35.0,W,W,W,2.5,,True,High,True,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_CLE_PIT,CLE,PIT,CLE,away,-3.5,-3.5,-3.5,20261101T173052Z_pregame_window,27,6,21.0,L,L,L,0.0,,False,Low,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_ATL_TB,ATL,TB,TB,home,-2.5,-2.5,-2.5,20261101T173052Z_pregame_window,16,0,16.0,W,W,W,0.0,,False,Low,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_LV_NYJ,LV,NYJ,LV,away,-1.5,-1.5,-1.5,20261101T173052Z_pregame_window,33,38,-5.0,W,W,W,0.0,,False,Low,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_LAC_LA,LAC,LA,LAC,away,-6.5,-6.5,-6.5,20261101T205552Z_pregame_window,24,9,15.0,L,L,L,0.0,,False,Low,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_NE_MIA,NE,MIA,MIA,home,7.5,7.0,7.0,20261101T205552Z_pregame_window,19,24,-5.0,W,W,W,0.5,7,False,Medium,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_KC_DEN,KC,DEN,DEN,home,1.5,1.5,-1.5,20261101T205552Z_pregame_window,28,24,4.0,W,W,W,0.0,,False,Low,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_PHI_WAS,PHI,WAS,WAS,home,-4.5,-6.0,-6.0,20261102T005047Z_pregame_window,27,10,17.0,W,W,W,1.5,,True,High,False,True,2026-11-04T15:30:43+00:00
+sheet_2026_wk08_20261029T201500Z.csv,2026,8,2026_08_CHI_SEA,CHI,SEA,CHI,away,-3.5,-3.0,-3.0,20261103T005054Z_pregame_window,17,34,-17.0,W,W,W,0.5,3,False,Medium,False,True,2026-11-04T15:30:43+00:00
