@@ -1,0 +1,12 @@
+{
+ "schema_version": "paid_pull_claim_v1",
+ "claim_id": "claim_20261105T141151Z_thu_scheduled_r42042531621-1-1",
+ "claim_ts": "2026-11-05T14:11:51.599919+00:00",
+ "kind": "thu_scheduled",
+ "run_id": "42042531621-1-1",
+ "ttl_minutes": 20,
+ "scheduled_target": "2026-11-05T14:10:00+00:00",
+ "event_ids": [],
+ "trigger": "external_dispatch",
+ "note": "intent to make ONE paid odds pull; not a quote and not a capture"
+}
