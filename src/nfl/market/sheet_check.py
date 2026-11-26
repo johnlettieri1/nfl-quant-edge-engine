@@ -23,6 +23,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.nfl.data.odds_snapshot import load_spread_quotes, write_exclusive, append_rows_atomic
+from src.nfl.market.body_clock import ET, classify, flag_text
 from src.nfl.market.books import NY_ACTIONABLE, in_scope, reference_books
 
 SHEET_DIR = Path("data/predictions/sheet")
@@ -53,7 +54,7 @@ CARD_FIELDS = ["season", "week", "game_id", "sheet_order", "away_team", "home_te
                "sheet_home_spread", "pick_team", "pick_side", "pick_line_display", "confidence", "favorite_pick",
                "check_ts_utc", "dk_snapshot_id", "dk_home_spread_at_check", "first_dk_home_spread",
                "best_ny_home_spread", "best_ny_away_spread", "pinnacle_home_spread", "edge_side", "edge_pts",
-               "pick_edge_pts", "key_flag", "minor_key_flag", "stale_flag", "rule_confidence", "dk_source", "backfill", "note"]
+               "pick_edge_pts", "key_flag", "minor_key_flag", "stale_flag", "rule_confidence", "dk_source", "backfill", "note", "body_clock_spot"]
 LEDGER_FIELDS = ["card_file", "season", "week", "game_id", "away_team", "home_team", "pick_team", "pick_side",
                  "sheet_home_spread", "dk_home_spread_at_check", "dk_home_spread_close", "close_snapshot_id",
                  "home_score", "away_score", "margin", "result_sheet", "result_dk_check", "result_dk_close",
@@ -167,7 +168,20 @@ def last_pregame_dk(q: pd.DataFrame, game_id: str) -> tuple[float | None, str | 
 
 # ----------------------------------------------------------------------------- check / card
 
-def check_sheet(sheet: pd.DataFrame, quotes: pd.DataFrame, as_of: datetime | None = None) -> pd.DataFrame:
+def body_clock_spot(q: pd.DataFrame, away: str, home: str, neutral_ids: frozenset = frozenset()) -> str:
+    """Phase 5D informational flag (never changes a pick or a confidence label). Kickoff comes from the
+    collected quotes; '' when the game is not a qualifying West vs East game in a window, or kickoff is unknown."""
+    g = _match(q, away, home)
+    if g.empty or "kickoff_utc_resolved" not in g.columns or g["kickoff_utc_resolved"].isna().all():
+        return ""
+    k = pd.to_datetime(g["kickoff_utc_resolved"].dropna().iloc[-1], utc=True).tz_convert(ET)
+    gid = g["game_id"].dropna().iloc[-1] if g["game_id"].notna().any() else ""
+    season = int(str(gid)[:4]) if str(gid)[:4].isdigit() else (k.year if k.month >= 3 else k.year - 1)
+    return flag_text(classify(home, away, season, k.hour * 60 + k.minute, neutral=gid in neutral_ids))
+
+
+def check_sheet(sheet: pd.DataFrame, quotes: pd.DataFrame, as_of: datetime | None = None,
+                neutral_ids: frozenset = frozenset()) -> pd.DataFrame:
     sheet = normalize_sheet(sheet)
     q = _pregame(quotes)
     rows = []
@@ -183,7 +197,8 @@ def check_sheet(sheet: pd.DataFrame, quotes: pd.DataFrame, as_of: datetime | Non
             m["dk_home_spread_at_check"] = sheet_home_spread(r.home_team, r.fav_team, float(hand))
             m["dk_snapshot_id"], m["dk_source"] = "", "card_web"
         row = {"sheet_order": int(r.sheet_order), "away_team": r.away_team, "home_team": r.home_team,
-               "fav_team": r.fav_team, "sheet_line": float(r.line), "sheet_home_spread": shs, **m}
+               "fav_team": r.fav_team, "sheet_line": float(r.line), "sheet_home_spread": shs, **m,
+               "body_clock_spot": body_clock_spot(q, r.away_team, r.home_team, neutral_ids)}
         dk = m["dk_home_spread_at_check"]
         if dk is None:
             row.update(edge_side=None, edge_pts=None, key_flag="", minor_key_flag="", stale_flag=False)
@@ -224,6 +239,8 @@ def format_table(chk: pd.DataFrame) -> str:
             flags.append(f"minor {r.minor_key_flag}")
         if r.stale_flag:
             flags.append("STALE")
+        if getattr(r, "body_clock_spot", ""):
+            flags.append(r.body_clock_spot)
         lines.append(f"{r.sheet_order} | {r.away_team} @ {r.home_team} | {sheet} | {num(r.dk_home_spread_at_check)} | "
                      f"{num(r.first_dk_home_spread)} | {ny} | {num(r.pinnacle_home_spread)} | {e} | {' '.join(flags)}")
     return "\n".join(lines)
@@ -273,7 +290,8 @@ def build_card(sheet: pd.DataFrame, chk: pd.DataFrame, season: int, week: int, c
                      "pick_edge_pts": "" if pick_edge is None else pick_edge, "key_flag": r.key_flag,
                      "minor_key_flag": r.minor_key_flag, "stale_flag": bool(r.stale_flag), "rule_confidence": rule,
                      "dk_source": r.dk_source, "backfill": backfill,
-                     "note": "" if pd.isna(note) else str(note)})
+                     "note": "" if pd.isna(note) else str(note),
+                     "body_clock_spot": getattr(r, "body_clock_spot", "")})
     if favs != 1:
         raise ValueError(f"exactly one favorite_pick required, got {favs}")
     missing = [r["sheet_order"] for r in rows if not r["game_id"]]

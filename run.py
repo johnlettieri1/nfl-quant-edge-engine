@@ -231,7 +231,14 @@ def cmd_sheet_check(a):
     sheet = pd.read_csv(a.sheet, dtype=str)
     sheet["sheet_order"] = sheet["sheet_order"].astype(int)
     as_of = datetime.fromisoformat(a.as_of.replace("Z", "+00:00")) if a.as_of else datetime.now(timezone.utc)
-    chk = check_sheet(sheet, load_spread_quotes(Path(a.odds_dir)), as_of)
+    neutral = frozenset()
+    try:   # neutral-site games never count as a body-clock spot; skipped quietly if the schedule cache is absent
+        from src.nfl.data.ingest import load_cached_schedules
+        sc = load_cached_schedules()
+        neutral = frozenset(sc.loc[sc["location"] != "Home", "game_id"])
+    except Exception:  # noqa: BLE001
+        pass
+    chk = check_sheet(sheet, load_spread_quotes(Path(a.odds_dir)), as_of, neutral_ids=neutral)
     print("LINE SHOPPING + INJURY CHECKS ONLY: not a spread model (Phase 5B found no edge). Units: 0.")
     print(format_table(chk))
     if a.card:
