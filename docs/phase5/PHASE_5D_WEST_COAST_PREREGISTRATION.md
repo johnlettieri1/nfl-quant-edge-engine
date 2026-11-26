@@ -3,7 +3,7 @@
 Written Nov 26 2026, BEFORE any result for this test was looked at. Only game counts were checked.
 Nothing below changes after the first run. Any later change is logged as a deviation in the report.
 
-Status: DRAFT, awaiting John's approval. No results have been run.
+Status: APPROVED by John, Nov 26 2026 ("Yes approve"). Frozen from this point.
 
 Requested by John Nov 26 2026. His decisions: proceed with a pre-registered test; night games (8 PM ET) are
 the primary window; Mountain-time teams do not count as West Coast.
